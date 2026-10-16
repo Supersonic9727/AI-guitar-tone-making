@@ -59,6 +59,10 @@ const ChevronDown  = _svg([_pl('6 9 12 15 18 9')]);
 const Plus         = _svg([_l(12,5,12,19), _l(5,12,19,12)]);
 const Minus        = _svg([_l(5,12,19,12)]);
 const RotateCcw    = _svg([_pl('1 4 1 10 7 10'), _p('M3.51 15a9 9 0 1 0 .49-3.36')]);
+const Upload       = _svg([_p('M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'), _pl('17 8 12 3 7 8'), _l(12,3,12,15)]);
+const Pencil       = _svg([_p('M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z')]);
+const Copy         = _svg([_p('M9 9h11v11H9z'), _p('M5 15H4V4h11v1')]);
+const Trash        = _svg([_pl('3 6 5 6 21 6'), _p('M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6'), _p('M10 11v6'), _p('M14 11v6')]);
 
 const MODEL_DB = { // (was export const)
   COMP: {
@@ -1004,7 +1008,7 @@ function ToneWizardModal({ onClose, onSave }) {
 }
 
 
-const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExport }) => {
+const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExport, fileInputRef }) => {
   return (
     <header className="flex items-center justify-between px-6 py-3 border-b border-[#303030] bg-[#111111] flex-shrink-0">
       <div className="flex items-center gap-3">
@@ -1020,6 +1024,7 @@ const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExpo
           <span className="text-gray-400">{presetsLength} PRESETS</span>
         </div>
         <button onClick={()=>setShowBrowser(true)} className="flex items-center gap-1.5 border border-[#404040] hover:border-blue-500/50 text-gray-500 hover:text-blue-400 px-3 py-1.5 rounded-lg text-[13px] font-bold transition-colors"><BookOpen size={11}/> MODEL DB</button>
+        <button onClick={()=>fileInputRef.current?.click()} title="EXPORT로 받은 백업 JSON 불러오기" className="flex items-center gap-1.5 border border-[#404040] hover:border-blue-500/50 text-gray-500 hover:text-blue-400 px-3 py-1.5 rounded-lg text-[13px] font-bold transition-colors"><Upload size={11}/> IMPORT</button>
         <button onClick={()=>setShowExport(true)}  className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-[13px] font-black transition-colors"><Download size={11}/> EXPORT</button>
       </div>
     </header>
@@ -1237,25 +1242,84 @@ const ToneCloudFooter = React.memo(({
          prev.useCab === next.useCab;
 });
 
+// ── 자동 저장 (브라우저 localStorage) ──────────────────────────────────────
+// 사생활 보호 모드 등에서 localStorage 가 막혀 있으면 저장만 건너뛰고 앱은 그대로 동작
+const STORAGE_KEY = 'tonecloud.gp200jr.v1';
+const isValidPreset = p => p && typeof p.id === 'string' && typeof p.name === 'string' && Array.isArray(p.chain)
+  && p.chain.every(b => b && typeof b.cat === 'string' && typeof b.model === 'string' && b.params && typeof b.params === 'object');
+function loadSaved() {
+  try {
+    const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (!data || !Array.isArray(data.presets) || !data.presets.length || !data.presets.every(isValidPreset)) return null;
+    return data;
+  } catch { return null; }
+}
+const cloneChain = chain => chain.map(b => ({ ...b, params: { ...b.params } }));
+
+// EXPORT 로 받은 백업(JSON) → 프리셋 배열. 전체 백업 / 단일 프리셋 두 형식 모두 지원
+function parseImportedPresets(text) {
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('JSON 파일이 아니에요. EXPORT로 받은 .json 파일을 선택해주세요.'); }
+  const list = Array.isArray(data?.presets) ? data.presets : data?.preset ? [data.preset] : Array.isArray(data) ? data : null;
+  if (!list) throw new Error('TONE CLOUD 백업 파일 형식이 아니에요.');
+  const valid = list
+    .map(p => p && { ...p, id: String(p.id ?? `imp-${Math.random().toString(36).slice(2, 8)}`) })
+    .filter(isValidPreset)
+    .map(p => ({ artist: '', song: '', tags: [], pickup: '', rating: 0, isAI: false, ...p,
+      chain: p.chain.map((b, i) => ({ active: true, ...b, id: String(b.id ?? `${p.id}-${i}`), params: { ...b.params } })) }));
+  if (!valid.length) throw new Error('가져올 수 있는 프리셋이 없어요.');
+  return valid;
+}
+
 function ToneCloudApp() {
-  const [presets,setPresets]=useState(INITIAL_PRESETS);
-  const [activeId,setActiveId]=useState('1');
+  const saved = useMemo(loadSaved, []);
+  const [presets,setPresets]=useState(()=>saved?.presets ?? INITIAL_PRESETS);
+  const [activeId,setActiveId]=useState(()=>saved?.activeId ?? '1');
   const [selBlockId,setSelBlockId]=useState(null);
   const [search,setSearch]=useState('');
   const [activeTags,setActiveTags]=useState([]);
   const [aiQuery,setAiQuery]=useState('');
   const [aiLoading,setAiLoading]=useState(false);
   const [aiPreview,setAiPreview]=useState(null);
-  const [useCab,setUseCab]=useState(true);
+  const [useCab,setUseCab]=useState(()=>saved?.useCab ?? true);
   const [showBrowser,setShowBrowser]=useState(false);
   const [showExport,setShowExport]=useState(false);
   const [showWizard,setShowWizard]=useState(false);
   const [aiError,setAiError]=useState(null);
   const [aiNote,setAiNote]=useState(null);
+  const [toast,setToast]=useState(null);
+  const [editingName,setEditingName]=useState(null);   // 이름 변경 중일 때 입력값
+  const [confirmDelete,setConfirmDelete]=useState(false);
+  const fileInputRef = useRef(null);
 
-  // 블록 RESET 용 원본 체인 (기본 프리셋 + 이후 저장되는 AI/위저드 프리셋)
-  const originalsRef = useRef(new Map(INITIAL_PRESETS.map(p => [p.id, p.chain])));
-  const rememberOriginal = p => originalsRef.current.set(p.id, p.chain.map(b => ({ ...b, params: { ...b.params } })));
+  // 블록 RESET 용 원본 체인 (기본 프리셋 + 이후 저장·복제·가져온 프리셋). 새로고침해도 유지되도록 함께 저장
+  const originalsRef = useRef(null);
+  if (!originalsRef.current) {
+    const m = new Map(INITIAL_PRESETS.map(p => [p.id, p.chain]));
+    if (saved?.originals) Object.entries(saved.originals).forEach(([id, chain]) => Array.isArray(chain) && m.set(id, chain));
+    originalsRef.current = m;
+  }
+  const rememberOriginal = p => originalsRef.current.set(p.id, cloneChain(p.chain));
+
+  // 변경 0.3초 뒤 자동 저장 (노브를 드래그하는 동안 매번 쓰지 않도록)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const ids = new Set(presets.map(p => p.id));
+        const originals = Object.fromEntries([...originalsRef.current].filter(([id]) => ids.has(id)));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, presets, activeId, useCab, originals }));
+      } catch (e) { console.warn('자동 저장 실패', e); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [presets, activeId, useCab]);
+
+  const toastTimer = useRef(null);
+  const showToast = msg => { setToast(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), 2800); };
+
+  // 프리셋을 바꾸면 이름 편집·삭제 확인 상태는 초기화
+  useEffect(() => { setEditingName(null); setConfirmDelete(false); }, [activeId]);
+  // 삭제 확인 버튼은 3초 안에 다시 누르지 않으면 원래대로
+  useEffect(() => { if (!confirmDelete) return; const t = setTimeout(() => setConfirmDelete(false), 3000); return () => clearTimeout(t); }, [confirmDelete]);
 
   // OUTPUT MODE 는 화면 표시만 바꾼다 — 프리셋 데이터는 건드리지 않음
   const cabForcedOff = b => !useCab && b.cat === 'CAB';
@@ -1367,6 +1431,67 @@ function ToneCloudApp() {
   };
   const hasCab = active.chain.some(b => b.cat === 'CAB');
 
+  // ── 프리셋 관리 ──
+  const updateActive = patch => setPresets(prev => prev.map(p => p.id === active.id ? { ...p, ...patch } : p));
+  const commitRename = () => {
+    const name = (editingName ?? '').trim();
+    if (name && name !== active.name) { updateActive({ name }); showToast('이름을 바꿨어요'); }
+    setEditingName(null);
+  };
+  const setRating = s => updateActive({ rating: active.rating === s ? 0 : s });   // 같은 별을 다시 누르면 0점
+  const duplicatePreset = () => {
+    const id = `${active.id}-copy-${Date.now()}`;
+    const copy = { ...active, id, name: `${active.name} (복사본)`, tags: [...active.tags],
+      chain: active.chain.map((b, i) => ({ ...b, id: `${id}-${i}`, params: { ...b.params } })) };
+    rememberOriginal(copy);
+    setPresets(prev => { const i = prev.findIndex(p => p.id === active.id); const next = [...prev]; next.splice(i + 1, 0, copy); return next; });
+    setActiveId(id); setSelBlockId(null);
+    showToast('프리셋을 복제했어요');
+  };
+  const deletePreset = () => {
+    if (presets.length <= 1) return;
+    if (!confirmDelete) { setConfirmDelete(true); return; }   // 첫 클릭은 확인 단계
+    const i = presets.findIndex(p => p.id === active.id);
+    const next = presets.filter(p => p.id !== active.id);
+    originalsRef.current.delete(active.id);
+    setPresets(next);
+    setActiveId(next[Math.min(i, next.length - 1)].id); setSelBlockId(null);
+    showToast(`"${active.name}" 삭제됨`);
+  };
+
+  // ── 가져오기 (EXPORT 백업 JSON) — 기존 프리셋에 합침. 똑같은 프리셋은 건너뜀 ──
+  const handleImportFile = async e => {
+    const file = e.target.files?.[0];
+    e.target.value = '';   // 같은 파일을 다시 골라도 동작하도록
+    if (!file) return;
+    try {
+      const incoming = parseImportedPresets(await file.text());
+      // 이름 + 블록 구성/값이 같으면 같은 프리셋 (블록 id·키 순서는 무시)
+      const signature = p => JSON.stringify([p.name, p.chain.map(b =>
+        [b.cat, b.model, b.active !== false, Object.keys(b.params).sort().map(k => [k, b.params[k]])])]);
+      const existing = new Set(presets.map(signature));
+      const ids = new Set(presets.map(p => p.id));
+      const added = []; let skipped = 0;
+      for (const p of incoming) {
+        const sig = signature(p);
+        if (existing.has(sig)) { skipped++; continue; }
+        existing.add(sig);   // 파일 안에 같은 프리셋이 두 번 있어도 한 번만
+        let preset = p;
+        if (ids.has(p.id)) {   // id 만 겹치고 내용이 다르면 새 id 부여
+          const id = `${p.id}-imp-${Date.now()}-${added.length}`;
+          preset = { ...p, id, chain: p.chain.map((b, i) => ({ ...b, id: `${id}-${i}` })) };
+        }
+        ids.add(preset.id); added.push(preset); rememberOriginal(preset);
+      }
+      if (added.length) { setPresets(prev => [...added, ...prev]); setActiveId(added[0].id); setSelBlockId(null); }
+      showToast(added.length
+        ? `${added.length}개 프리셋을 가져왔어요${skipped ? ` (이미 있는 ${skipped}개는 건너뜀)` : ''}`
+        : `새로 가져올 프리셋이 없어요 (${skipped}개 모두 이미 있음)`);
+    } catch (err) {
+      showToast(`⚠️ ${err.message}`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-gray-200 flex flex-col" style={{fontFamily:"'Courier New',Courier,monospace"}}>
       {showBrowser && <ModelBrowser onClose={()=>setShowBrowser(false)}/>}
@@ -1378,7 +1503,11 @@ function ToneCloudApp() {
         onClose={()=>setSelBlockId(null)} onParamChange={(key,val)=>updateParam(selBlock.id,key,val)}
         onToggleActive={()=>toggleBlockActive(selBlock.id)} onReset={()=>resetBlockParams(selBlock.id)}/>
 
-      <ToneCloudHeader presetsLength={presets.length} setShowBrowser={setShowBrowser} setShowExport={setShowExport} />
+      <ToneCloudHeader presetsLength={presets.length} setShowBrowser={setShowBrowser} setShowExport={setShowExport} fileInputRef={fileInputRef} />
+      <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFile}/>
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl border border-[#404040] bg-[#161616] text-sm font-bold text-gray-100 shadow-2xl" role="status">{toast}</div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <PresetSidebar 
@@ -1395,11 +1524,18 @@ function ToneCloudApp() {
 
         <main className="flex-1 flex flex-col overflow-hidden">
           <div className="px-6 py-4 border-b border-[#2a2a2a] flex-shrink-0">
-            <div className="flex items-start justify-between">
-              <div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  {active.isAI&&<Sparkles size={13} className="text-blue-400"/>}
-                  <h2 className="text-xl font-black text-white tracking-tight">{active.name}</h2>
+                  {active.isAI&&<Sparkles size={13} className="text-blue-400 flex-shrink-0"/>}
+                  {editingName!==null ? (
+                    <input autoFocus value={editingName} maxLength={80}
+                      onChange={e=>setEditingName(e.target.value)} onBlur={commitRename}
+                      onKeyDown={e=>{if(e.key==='Enter')commitRename();if(e.key==='Escape')setEditingName(null);}}
+                      className="flex-1 min-w-0 bg-[#161616] border border-blue-600 rounded-lg px-2 py-1 text-lg font-black text-white focus:outline-none"/>
+                  ) : (
+                    <h2 onDoubleClick={()=>setEditingName(active.name)} title="더블클릭해서 이름 변경" className="text-xl font-black text-white tracking-tight truncate">{active.name}</h2>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 mt-1.5">
                   <span className="text-[13px] text-gray-500 flex items-center gap-1"><Music size={10}/>{active.artist}</span>
@@ -1407,8 +1543,22 @@ function ToneCloudApp() {
                   <span className="text-xs bg-blue-900/25 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase tracking-wider">{active.pickup}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-0.5">
-                {[1,2,3,4,5].map(s=><Star key={s} size={11} className={s<=active.rating?'text-yellow-500 fill-yellow-500':'text-gray-500'}/>)}
+              <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                <div className="flex items-center" title="별점 (같은 별을 다시 누르면 0점)">
+                  {[1,2,3,4,5].map(s=>(
+                    <button key={s} onClick={()=>setRating(s)} aria-label={`별점 ${s}점`} className="p-0.5 hover:scale-125 transition-transform">
+                      <Star size={13} className={s<=active.rating?'text-yellow-500 fill-yellow-500':'text-gray-600 hover:text-yellow-500'}/>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={()=>setEditingName(active.name)} title="이름 변경" className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#383838] text-[11px] text-gray-400 hover:text-white hover:border-gray-500 transition-colors"><Pencil size={10}/> 이름</button>
+                  <button onClick={duplicatePreset} title="복제" className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#383838] text-[11px] text-gray-400 hover:text-white hover:border-gray-500 transition-colors"><Copy size={10}/> 복제</button>
+                  <button onClick={deletePreset} disabled={presets.length<=1} title={presets.length<=1?'마지막 프리셋은 삭제할 수 없어요':'삭제'}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition-colors disabled:opacity-30 ${confirmDelete?'bg-red-600 border-red-500 text-white font-bold':'border-[#383838] text-gray-400 hover:text-red-400 hover:border-red-500/50'}`}>
+                    <Trash size={10}/> {confirmDelete?'정말 삭제?':'삭제'}
+                  </button>
+                </div>
               </div>
             </div>
             <div className="flex flex-wrap gap-1 mt-2.5">
