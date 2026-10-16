@@ -16,6 +16,10 @@
     });
   </script>
   <script src="./genreMapper.js?v=2"></script>
+  <!-- Firebase (구글 로그인 + Firestore 클라우드 동기화). 로딩에 실패해도 앱은 로컬 저장으로 동작 -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <style>
     * { box-sizing: border-box; }
     body { margin: 0; background: #0a0a0a; }
@@ -1008,7 +1012,9 @@ function ToneWizardModal({ onClose, onSave }) {
 }
 
 
-const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExport, fileInputRef }) => {
+const SYNC_LABEL = { off:['#6b7280','로컬 저장'], syncing:['#eab308','동기화 중…'], synced:['#22c55e','동기화됨'], error:['#ef4444','동기화 오류'] };
+const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExport, fileInputRef, user, syncStatus, onSignIn, onSignOut }) => {
+  const [dot, label] = SYNC_LABEL[syncStatus] ?? SYNC_LABEL.off;
   return (
     <header className="flex items-center justify-between px-6 py-3 border-b border-[#303030] bg-[#111111] flex-shrink-0">
       <div className="flex items-center gap-3">
@@ -1020,16 +1026,28 @@ const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExpo
       </div>
       <div className="flex items-center gap-2">
         <div className="hidden md:flex flex-col items-end text-xs leading-tight">
-          <span className="text-green-500 tracking-widest">● ONLINE</span>
+          <span className="tracking-widest" style={{color:dot}}>● {label}</span>
           <span className="text-gray-400">{presetsLength} PRESETS</span>
         </div>
+        {user ? (
+          <div className="flex items-center gap-1.5 border border-[#404040] rounded-lg pl-1 pr-1.5 py-1" title={`${user.email ?? ''} · ${label}`}>
+            {user.photoURL
+              ? <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="w-5 h-5 rounded-full"/>
+              : <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center">{(user.displayName||user.email||'?')[0].toUpperCase()}</div>}
+            <span className="w-1.5 h-1.5 rounded-full md:hidden" style={{background:dot}}/>
+            <button onClick={onSignOut} className="text-[11px] text-gray-500 hover:text-gray-200 font-bold">로그아웃</button>
+          </div>
+        ) : (
+          <button onClick={onSignIn} title="같은 구글 계정으로 로그인하면 PC·모바일 프리셋이 자동 동기화돼요"
+            className="flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 border border-[#404040] hover:border-green-500/50 text-gray-400 hover:text-green-400 px-3 py-1.5 rounded-lg text-[13px] font-bold transition-colors">☁️ 구글 로그인</button>
+        )}
         <button onClick={()=>setShowBrowser(true)} className="flex items-center gap-1.5 border border-[#404040] hover:border-blue-500/50 text-gray-500 hover:text-blue-400 px-3 py-1.5 rounded-lg text-[13px] font-bold transition-colors"><BookOpen size={11}/> MODEL DB</button>
         <button onClick={()=>fileInputRef.current?.click()} title="EXPORT로 받은 백업 JSON 불러오기" className="flex items-center gap-1.5 border border-[#404040] hover:border-blue-500/50 text-gray-500 hover:text-blue-400 px-3 py-1.5 rounded-lg text-[13px] font-bold transition-colors"><Upload size={11}/> IMPORT</button>
         <button onClick={()=>setShowExport(true)}  className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-[13px] font-black transition-colors"><Download size={11}/> EXPORT</button>
       </div>
     </header>
   );
-}, (prev, next) => prev.presetsLength === next.presetsLength);
+}, (prev, next) => prev.presetsLength === next.presetsLength && prev.user === next.user && prev.syncStatus === next.syncStatus);
 
 const PresetSidebar = React.memo(({
   presets,
@@ -1271,6 +1289,64 @@ function parseImportedPresets(text) {
   return valid;
 }
 
+// 이름 + 블록 구성/값이 같으면 같은 프리셋 (블록 id·키 순서는 무시)
+const presetSignature = p => JSON.stringify([p.name, p.chain.map(b =>
+  [b.cat, b.model, b.active !== false, Object.keys(b.params).sort().map(k => [k, b.params[k]])])]);
+
+// ── 클라우드 동기화 (Firebase: 구글 로그인 + Firestore users/{uid} 문서 1개) ──────────
+// apiKey 등은 프로젝트 식별용 공개값. 실제 보호는 Firestore 규칙(본인 uid 문서만 읽기/쓰기)이 담당
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyDnMp83KrkSAK220IeqHGaDAz-fbGBmoN0',
+  authDomain: 'guitar-ai-tone-making-server.firebaseapp.com',
+  projectId: 'guitar-ai-tone-making-server',
+  storageBucket: 'guitar-ai-tone-making-server.firebasestorage.app',
+  messagingSenderId: '675031523875',
+  appId: '1:675031523875:web:b24d46f87adc66ca5e4796',
+};
+let _fb = null;
+function getFirebase() {
+  if (_fb) return _fb;
+  try {
+    if (!window.firebase) return null;   // CDN 차단 등 → 동기화 없이 로컬 저장만
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    _fb = { auth: firebase.auth(), db: firebase.firestore() };
+    return _fb;
+  } catch (e) { console.warn('Firebase 초기화 실패', e); return null; }
+}
+// 이 창(탭) 식별자 — 내가 방금 쓴 변경이 다시 돌아왔을 때 무시하기 위함.
+// 창마다 새로 만들어서, 같은 브라우저에 창을 두 개 띄워도 서로 동기화됨
+const DEVICE_ID = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const SYNC_ERRORS = {
+  'auth/unauthorized-domain': '이 주소가 Firebase 승인된 도메인에 없어요. (Authentication → 설정 → 승인된 도메인)',
+  'auth/popup-blocked': '팝업이 차단됐어요. 브라우저에서 팝업을 허용해주세요.',
+  'auth/network-request-failed': '네트워크 오류로 로그인하지 못했어요.',
+  'permission-denied': '클라우드 접근 권한이 없어요. Firestore 규칙을 확인해주세요.',
+  'unavailable': '클라우드에 연결할 수 없어요. 잠시 후 자동으로 다시 시도해요.',
+};
+const syncErrorMessage = e => SYNC_ERRORS[e?.code] ?? `동기화 오류: ${e?.message ?? e}`;
+
+// 로그인 직후 1회: 클라우드 프리셋 + 이 기기에만 있는 프리셋을 합침
+// - 손대지 않은 기본 프리셋은 "이 기기 데이터"로 치지 않음 (새 기기에서 로그인해도 기본값이 섞여 들어가지 않게)
+// - 같은 내용은 건너뛰고, id 만 겹치면 새 id 부여
+function mergeLocalIntoCloud(cloudPresets, localPresets) {
+  const pristine = new Set(INITIAL_PRESETS.map(presetSignature));
+  const sigs = new Set(cloudPresets.map(presetSignature));
+  const ids = new Set(cloudPresets.map(p => p.id));
+  const added = [];
+  for (const p of localPresets) {
+    const sig = presetSignature(p);
+    if (sigs.has(sig) || (pristine.has(sig) && INITIAL_PRESETS.some(d => d.id === p.id))) continue;
+    let preset = p;
+    if (ids.has(p.id)) {
+      // 같은 프리셋을 두 기기에서 각각 고친 경우 → 둘 다 남기되 이 기기 쪽에 표시
+      const id = `${p.id}-dev-${Date.now()}-${added.length}`;
+      preset = { ...p, id, name: `${p.name} (이 기기)`, chain: p.chain.map((b, i) => ({ ...b, id: `${id}-${i}` })) };
+    }
+    sigs.add(sig); ids.add(preset.id); added.push(preset);
+  }
+  return { presets: [...cloudPresets, ...added], added };
+}
+
 function ToneCloudApp() {
   const saved = useMemo(loadSaved, []);
   const [presets,setPresets]=useState(()=>saved?.presets ?? INITIAL_PRESETS);
@@ -1300,18 +1376,120 @@ function ToneCloudApp() {
     originalsRef.current = m;
   }
   const rememberOriginal = p => originalsRef.current.set(p.id, cloneChain(p.chain));
+  const originalsFor = list => { const ids = new Set(list.map(p => p.id)); return Object.fromEntries([...originalsRef.current].filter(([id]) => ids.has(id))); };
+  const adoptOriginals = obj => Object.entries(obj || {}).forEach(([id, chain]) => Array.isArray(chain) && originalsRef.current.set(id, chain));
 
   // 변경 0.3초 뒤 자동 저장 (노브를 드래그하는 동안 매번 쓰지 않도록)
   useEffect(() => {
     const t = setTimeout(() => {
       try {
-        const ids = new Set(presets.map(p => p.id));
-        const originals = Object.fromEntries([...originalsRef.current].filter(([id]) => ids.has(id)));
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, presets, activeId, useCab, originals }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, presets, activeId, useCab, originals: originalsFor(presets) }));
       } catch (e) { console.warn('자동 저장 실패', e); }
     }, 300);
     return () => clearTimeout(t);
   }, [presets, activeId, useCab]);
+
+  // ── 클라우드 동기화 ──
+  // 프리셋 목록만 기기 간 공유. 선택한 프리셋·출력 모드는 기기별로 따로 기억
+  const [user,setUser]=useState(null);
+  const [syncStatus,setSyncStatus]=useState('off');   // off | syncing | synced | error
+  const presetsRef = useRef(presets); presetsRef.current = presets;
+  const cloudReadyRef = useRef(false);    // 로그인 직후 합치기가 끝났는지
+  const remoteApplyRef = useRef(false);   // 다른 기기 변경을 반영한 직후엔 다시 업로드하지 않음
+
+  const uploadState = (uid, list) => getFirebase().db.collection('users').doc(uid).set({
+    data: JSON.stringify({ version: 1, presets: list, originals: originalsFor(list) }),
+    deviceId: DEVICE_ID,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  const applyCloudPresets = list => {
+    remoteApplyRef.current = true;
+    setPresets(list);
+    setActiveId(id => list.some(p => p.id === id) ? id : list[0].id);
+  };
+
+  useEffect(() => {
+    const fb = getFirebase();
+    if (!fb) return;
+    return fb.auth.onAuthStateChanged(u => setUser(u));
+  }, []);
+
+  useEffect(() => {
+    cloudReadyRef.current = false;
+    if (!user) { setSyncStatus('off'); return; }
+    const ref = getFirebase().db.collection('users').doc(user.uid);
+    let cancelled = false, unsub = null;
+    setSyncStatus('syncing');
+    (async () => {
+      try {
+        const snap = await ref.get();
+        if (cancelled) return;
+        let cloud = null;
+        try { cloud = snap.exists ? JSON.parse(snap.data().data) : null; } catch {}
+        const cloudPresets = Array.isArray(cloud?.presets) && cloud.presets.length && cloud.presets.every(isValidPreset) ? cloud.presets : null;
+        const local = presetsRef.current;
+        let next = local, added = [];
+        if (cloudPresets) {
+          adoptOriginals(cloud.originals);
+          ({ presets: next, added } = mergeLocalIntoCloud(cloudPresets, local));
+          added.forEach(p => { if (!originalsRef.current.has(p.id)) rememberOriginal(p); });
+        }
+        if (!cloudPresets || added.length) await uploadState(user.uid, next);
+        if (cancelled) return;
+        if (next !== local) applyCloudPresets(next);
+        cloudReadyRef.current = true;
+        setSyncStatus('synced');
+        showToast(!cloudPresets ? '☁️ 이 기기의 프리셋을 클라우드에 저장했어요'
+          : added.length ? `☁️ 클라우드와 합쳤어요 (이 기기에만 있던 ${added.length}개 추가)` : '☁️ 클라우드 프리셋을 불러왔어요');
+
+        // 다른 기기에서 바뀐 내용을 실시간으로 반영
+        unsub = ref.onSnapshot(s => {
+          if (s.metadata.hasPendingWrites || !s.exists) return;
+          const d = s.data();
+          if (d.deviceId === DEVICE_ID) return;   // 내가 쓴 변경
+          let parsed = null; try { parsed = JSON.parse(d.data); } catch {}
+          if (!Array.isArray(parsed?.presets) || !parsed.presets.length || !parsed.presets.every(isValidPreset)) return;
+          adoptOriginals(parsed.originals);
+          applyCloudPresets(parsed.presets);
+          setSyncStatus('synced');
+        }, err => { setSyncStatus('error'); showToast(`⚠️ ${syncErrorMessage(err)}`); });
+      } catch (e) {
+        if (!cancelled) { setSyncStatus('error'); showToast(`⚠️ ${syncErrorMessage(e)}`); }
+      }
+    })();
+    return () => { cancelled = true; unsub?.(); };
+  }, [user?.uid]);
+
+  // 이 기기에서 바꾼 내용은 0.8초 뒤 클라우드에 업로드
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current) return;
+    if (remoteApplyRef.current) { remoteApplyRef.current = false; return; }
+    setSyncStatus('syncing');
+    const t = setTimeout(() => {
+      uploadState(user.uid, presets)
+        .then(() => setSyncStatus('synced'))
+        .catch(e => { setSyncStatus('error'); showToast(`⚠️ ${syncErrorMessage(e)}`); });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [presets, user]);
+
+  const signIn = async () => {
+    const fb = getFirebase();
+    if (!fb) { showToast('⚠️ 클라우드 기능을 불러오지 못했어요. 네트워크나 광고 차단 확장을 확인해주세요.'); return; }
+    const provider = new firebase.auth.GoogleAuthProvider();
+    try { await fb.auth.signInWithPopup(provider); }
+    catch (e) {
+      if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+      if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+        try { await fb.auth.signInWithRedirect(provider); return; } catch (e2) { e = e2; }
+      }
+      showToast(`⚠️ ${syncErrorMessage(e)}`);
+    }
+  };
+  const signOut = async () => {
+    await getFirebase()?.auth.signOut();
+    showToast('로그아웃했어요. 이 기기의 프리셋은 그대로 남아 있어요');
+  };
 
   const toastTimer = useRef(null);
   const showToast = msg => { setToast(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), 2800); };
@@ -1466,14 +1644,11 @@ function ToneCloudApp() {
     if (!file) return;
     try {
       const incoming = parseImportedPresets(await file.text());
-      // 이름 + 블록 구성/값이 같으면 같은 프리셋 (블록 id·키 순서는 무시)
-      const signature = p => JSON.stringify([p.name, p.chain.map(b =>
-        [b.cat, b.model, b.active !== false, Object.keys(b.params).sort().map(k => [k, b.params[k]])])]);
-      const existing = new Set(presets.map(signature));
+      const existing = new Set(presets.map(presetSignature));
       const ids = new Set(presets.map(p => p.id));
       const added = []; let skipped = 0;
       for (const p of incoming) {
-        const sig = signature(p);
+        const sig = presetSignature(p);
         if (existing.has(sig)) { skipped++; continue; }
         existing.add(sig);   // 파일 안에 같은 프리셋이 두 번 있어도 한 번만
         let preset = p;
@@ -1503,7 +1678,8 @@ function ToneCloudApp() {
         onClose={()=>setSelBlockId(null)} onParamChange={(key,val)=>updateParam(selBlock.id,key,val)}
         onToggleActive={()=>toggleBlockActive(selBlock.id)} onReset={()=>resetBlockParams(selBlock.id)}/>
 
-      <ToneCloudHeader presetsLength={presets.length} setShowBrowser={setShowBrowser} setShowExport={setShowExport} fileInputRef={fileInputRef} />
+      <ToneCloudHeader presetsLength={presets.length} setShowBrowser={setShowBrowser} setShowExport={setShowExport} fileInputRef={fileInputRef}
+        user={user} syncStatus={syncStatus} onSignIn={signIn} onSignOut={signOut} />
       <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFile}/>
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl border border-[#404040] bg-[#161616] text-sm font-bold text-gray-100 shadow-2xl" role="status">{toast}</div>
