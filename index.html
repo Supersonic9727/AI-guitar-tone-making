@@ -26,6 +26,15 @@
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #111; }
     ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+    /* 실기 세팅 카드 인쇄/PDF: 앱 화면은 숨기고 카드만 흰 종이에 출력 */
+    @media print {
+      #root { display: none !important; }
+      body { background: #fff !important; }
+      .setting-card-overlay { position: static !important; background: #fff !important; padding: 0 !important; display: block !important; backdrop-filter: none !important; }
+      .setting-card-sheet { max-height: none !important; overflow: visible !important; border: none !important; background: #fff !important; box-shadow: none !important; max-width: none !important; }
+      .setting-card-sheet, .setting-card-sheet * { color: #000 !important; background: transparent !important; border-color: #bbb !important; overflow: visible !important; }
+      .no-print { display: none !important; }
+    }
   </style>
 </head>
 <body>
@@ -33,6 +42,9 @@
 
   <script type="text/babel" data-presets="classic-react">
 const { useState, useMemo, useRef, useEffect, useCallback } = React;
+
+// 손가락 터치가 주 입력인 기기(폰·태블릿)인지 — 노브 값 직접 입력을 더블클릭 대신 탭으로 열기 위해 사용
+const IS_TOUCH = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
 /* ── Icon helpers (React.createElement, no JSX) ── */
 const CE = React.createElement;
@@ -377,7 +389,8 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md' }
     const x2=Cx+R*Math.cos(toRad(to)),   y2=Cx+R*Math.sin(toRad(to));
     return `M${x1} ${y1} A${R} ${R} 0 ${Math.abs(to-from)>180?1:0} 1 ${x2} ${y2}`;
   };
-  const onMouseDown = useCallback(e => {
+  // 포인터 이벤트 = 마우스 + 터치(손가락 드래그) 모두 처리
+  const onPointerDown = useCallback(e => {
     dragging.current=true; startY.current=e.clientY; startVal.current=value; e.preventDefault();
   }, [value]);
   useEffect(() => {
@@ -386,12 +399,13 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md' }
       onChange(Math.max(0, Math.min(100, startVal.current+Math.round((startY.current-e.clientY)/2))));
     };
     const onUp = () => { dragging.current=false; };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', onUp); };
   }, [onChange]);
   const openEdit = () => { setInputStr(String(value)); setEditing(true); };
-  useEffect(() => { if (editing && inputRef.current) inputRef.current.focus(); }, [editing]);
+  useEffect(() => { if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, [editing]);
   const commitEdit = () => {
     const n = parseInt(inputStr, 10);
     if (!isNaN(n)) onChange(Math.max(0, Math.min(100, n)));
@@ -405,7 +419,7 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md' }
   const knobR = size==='lg' ? 14 : 11;
   return (
     <div className="flex flex-col items-center gap-1.5 select-none">
-      <div className="relative cursor-ns-resize" onMouseDown={onMouseDown}>
+      <div className="relative cursor-ns-resize" onPointerDown={onPointerDown} style={{touchAction:'none'}}>
         <svg width={dim} height={dim} viewBox={`0 0 ${dim} ${dim}`}>
           {ticks.map((t,i) => <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={t.lit?color:'#3a3a3a'} strokeWidth="1.5" strokeLinecap="round"/>)}
           <path d={arcPath(START,START+ARC)} fill="none" stroke="#111827" strokeWidth="3" strokeLinecap="round"/>
@@ -418,12 +432,12 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md' }
       </div>
       <span className="text-xs uppercase tracking-widest leading-none font-bold" style={{color:color}}>{label}</span>
       {editing ? (
-        <input ref={inputRef} className="w-10 text-center text-xs font-mono rounded px-1 py-0.5 border outline-none"
+        <input ref={inputRef} inputMode="numeric" className={`${IS_TOUCH?"w-14 text-base":"w-10 text-xs"} text-center font-mono rounded px-1 py-0.5 border outline-none`}
           style={{background:'#0a0a0a',borderColor:color,color}}
           value={inputStr} onChange={e=>setInputStr(e.target.value)}
           onBlur={commitEdit} onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditing(false);}}/>
       ) : (
-        <button onDoubleClick={openEdit} className="text-xs font-mono px-1.5 py-0.5 rounded border border-transparent hover:border-current transition-colors" style={{color}}>{value}</button>
+        <button onDoubleClick={openEdit} onClick={()=>{ if (IS_TOUCH) openEdit(); }} className="text-xs font-mono px-1.5 py-0.5 rounded border border-transparent hover:border-current transition-colors" style={{color}}>{value}</button>
       )}
     </div>
   );
@@ -438,7 +452,7 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
       <div onClick={onClose} className="fixed inset-0 z-30 transition-opacity duration-300"
         style={{background:'rgba(0,0,0,0.45)',opacity:isOpen?1:0,pointerEvents:isOpen?'auto':'none'}}/>
       <div className="fixed top-0 right-0 h-full z-40 flex flex-col border-l border-[#1e1e1e] overflow-hidden"
-        style={{width:'360px',background:'#080808',transform:isOpen?'translateX(0)':'translateX(100%)',transition:'transform 0.28s cubic-bezier(0.4,0,0.2,1)',boxShadow:isOpen?'-8px 0 32px rgba(0,0,0,0.6)':'none'}}>
+        style={{width:'min(360px, 100vw)',background:'#080808',transform:isOpen?'translateX(0)':'translateX(100%)',transition:'transform 0.28s cubic-bezier(0.4,0,0.2,1)',boxShadow:isOpen?'-8px 0 32px rgba(0,0,0,0.6)':'none'}}>
         {block && (
           <>
             <div className="flex-shrink-0 border-b px-5 py-4" style={{borderColor:`${color.border}30`}}>
@@ -498,7 +512,7 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
                 </div>
               </div>
               <div className="mt-4 text-xs text-gray-500 text-center space-y-0.5">
-                <div>↕ 드래그로 값 조절</div><div>더블클릭 → 숫자 직접 입력</div><div>+/- 버튼 → 1단계 미세 조정</div>
+                <div>↕ 노브를 위아래로 드래그해서 값 조절</div><div>{IS_TOUCH?'숫자 탭':'숫자 더블클릭'} → 직접 입력</div><div>+/- 버튼 → 1단계 미세 조정</div>
               </div>
             </div>
           </>
@@ -561,7 +575,7 @@ function ModelBrowser({ onClose }) {
         <div className="px-5 py-3 border-b border-[#2a2a2a]">
           <div className="relative">
             <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-            <input autoFocus className="w-full bg-[#161616] border border-[#383838] rounded-xl pl-8 pr-3 py-2.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-blue-600"
+            <input autoFocus className="w-full bg-[#161616] border border-[#383838] rounded-xl pl-8 pr-3 py-2.5 text-base sm:text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-blue-600"
               placeholder="모델명 / 원본 기어명 / 사운드 특징 검색..." value={q} onChange={e=>setQ(e.target.value)}/>
           </div>
         </div>
@@ -695,6 +709,112 @@ function ExportModal({ presets, active, onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ── 실기 세팅 카드: GP-200JR 앞에서 블록별 값을 보며 하나씩 체크하는 체크리스트 ──
+const fmtParams = params => Object.entries(params).map(([k, v]) => `${k} ${v}`).join(' · ');
+function settingCardText(preset, useCab) {
+  const lines = [
+    `[TONE CLOUD 세팅 카드] ${preset.name}`,
+    `아티스트: ${preset.artist}${isRealSong(preset.song) ? ` / 곡: ${preset.song}` : ''}`,
+    `기기: ${DEVICE} · 기타: ${GUITAR}`,
+    `픽업: ${preset.pickup}`,
+    `출력: ${useCab ? 'Direct / Mixer → 기기 Global Cab Sim ON' : 'Amp Return → 기기 Global Cab Sim OFF'}`,
+    '──────────────────────────',
+  ];
+  preset.chain.forEach((b, i) => {
+    const off = !b.active || (!useCab && b.cat === 'CAB');
+    const base = MODEL_DB[b.cat]?.models.find(m => m.name === b.model || m.id === b.model)?.base;
+    lines.push(`☐ ${i + 1}. [${FX_LABEL[b.cat] ?? b.cat}] ${b.model}${base ? ` (${base})` : ''}${off ? '  ※ OFF' : ''}`);
+    if (!off) lines.push(`     ${fmtParams(b.params)}`);
+  });
+  return lines.join('\n');
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch {   // 구형 브라우저 대비
+    const ta = Object.assign(document.createElement('textarea'), { value: text });
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy'); document.body.removeChild(ta); return ok;
+  }
+}
+
+function SettingCardModal({ preset, useCab, onClose, onToast }) {
+  const [done, setDone] = useState(() => new Set());
+  const toggle = i => setDone(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  const total = preset.chain.length;
+  const text = settingCardText(preset, useCab);
+  const copy = async () => onToast(await copyText(text) ? '세팅 카드를 복사했어요' : '⚠️ 복사하지 못했어요');
+  const share = () => navigator.share({ title: `${preset.name} 세팅 카드`, text }).catch(() => {});
+  useEffect(() => { const onKey = e => e.key === 'Escape' && onClose(); window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [onClose]);
+
+  // #root 밖(body)에 그려서 인쇄할 때 앱 화면 없이 카드만 나오게 함
+  return ReactDOM.createPortal(
+    <div className="setting-card-overlay fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/75 backdrop-blur-sm" style={{fontFamily:"'Courier New',Courier,monospace"}}>
+      <div className="setting-card-sheet w-full sm:max-w-xl max-h-[92dvh] flex flex-col rounded-t-2xl sm:rounded-2xl border border-[#404040] overflow-hidden text-gray-200" style={{background:'#080808'}}>
+        <div className="flex items-start justify-between gap-3 px-4 sm:px-5 py-3.5 border-b border-[#303030]">
+          <div className="min-w-0">
+            <div className="text-[11px] text-gray-500 uppercase tracking-widest">📋 실기 세팅 카드 · {DEVICE}</div>
+            <div className="text-base font-black text-white leading-snug break-words">{preset.name}</div>
+            <div className="text-xs text-gray-400 mt-0.5">{preset.artist}{isRealSong(preset.song) ? ` · "${preset.song}"` : ''}</div>
+          </div>
+          <button onClick={onClose} aria-label="닫기" className="no-print w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg border border-[#404040] text-gray-400 hover:text-white"><X size={14}/></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3 space-y-3">
+          {/* 기기 전체 설정 먼저 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <div className="rounded-lg border border-blue-500/25 bg-blue-900/15 px-3 py-2"><span className="text-gray-500">픽업 </span><strong className="text-blue-300">{preset.pickup}</strong></div>
+            <div className={`rounded-lg border px-3 py-2 ${useCab?'border-blue-500/25 bg-blue-900/15':'border-orange-500/30 bg-orange-900/15'}`}>
+              <span className="text-gray-500">Global Cab Sim </span><strong className={useCab?'text-blue-300':'text-orange-300'}>{useCab?'ON (Direct/Mixer)':'OFF (Amp Return)'}</strong>
+            </div>
+          </div>
+
+          <div className="no-print flex items-center justify-between text-[11px] text-gray-500">
+            <span>블록을 탭해서 입력 완료 체크</span>
+            <span className="font-bold text-gray-300">{done.size} / {total} 완료</span>
+          </div>
+          <div className="h-1 rounded-full bg-[#1a1a1a] overflow-hidden no-print"><div className="h-full bg-green-500 transition-all" style={{width:`${total ? done.size / total * 100 : 0}%`}}/></div>
+
+          <ol className="space-y-1.5">
+            {preset.chain.map((b, i) => {
+              const c = FX_COLOR[b.cat] ?? FX_COLOR.EQ;
+              const off = !b.active || (!useCab && b.cat === 'CAB');
+              const base = MODEL_DB[b.cat]?.models.find(m => m.name === b.model || m.id === b.model)?.base;
+              const isDone = done.has(i);
+              return (
+                <li key={b.id ?? i}>
+                  <button onClick={()=>toggle(i)} className="w-full text-left flex items-start gap-2.5 p-2.5 rounded-lg border transition-colors"
+                    style={{borderColor: isDone ? '#22c55e55' : `${c.border}30`, background: isDone ? '#05140a' : '#0d0d0d', opacity: off && !isDone ? 0.55 : 1}}>
+                    <span className={`mt-0.5 w-5 h-5 flex-shrink-0 rounded border flex items-center justify-center text-[11px] font-black ${isDone?'bg-green-600 border-green-500 text-white':'border-[#505050]'}`}>{isDone?'✓':''}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-[11px] text-gray-500">{i + 1}.</span>
+                        <span className="text-[11px] font-black uppercase tracking-wider" style={{color:c.text}}>{FX_LABEL[b.cat] ?? b.cat}</span>
+                        <span className={`text-sm font-black text-white ${isDone?'line-through decoration-green-500/60':''}`}>{b.model}</span>
+                        {off && <span className="text-[10px] font-bold text-orange-400">OFF</span>}
+                      </div>
+                      {base && <div className="text-[10px] text-gray-500 mt-0.5">{base}</div>}
+                      {!off && <div className="text-xs text-gray-300 mt-1 leading-relaxed">{Object.entries(b.params).map(([k, v]) => <span key={k} className="inline-block mr-2.5 whitespace-nowrap"><span className="text-gray-500">{k}</span> <strong>{v}</strong></span>)}</div>}
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+
+        <div className="no-print flex flex-wrap gap-2 px-4 sm:px-5 py-3 border-t border-[#303030]">
+          <button onClick={()=>setDone(new Set())} className="px-3 py-2 rounded-xl border border-[#404040] text-xs font-bold text-gray-400 hover:text-white">체크 초기화</button>
+          <div className="flex-1"/>
+          <button onClick={copy} className="px-3 py-2 rounded-xl border border-[#404040] text-xs font-bold text-gray-300 hover:text-white">📋 텍스트 복사</button>
+          {typeof navigator.share === 'function' && <button onClick={share} className="px-3 py-2 rounded-xl border border-[#404040] text-xs font-bold text-gray-300 hover:text-white">↗ 공유</button>}
+          <button onClick={()=>window.print()} className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-black text-white">🖨 인쇄 / PDF</button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -891,7 +1011,7 @@ function ToneWizardModal({ onClose, onSave }) {
             <React.Fragment key={i}>
               <div className="flex items-center gap-1.5">
                 <div className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-black ${i<step?'bg-purple-600 text-white':i===step?'bg-purple-600/20 border border-purple-500 text-purple-400':'bg-[#111] border border-[#404040] text-gray-400'}`}>{i<step?'✓':i+1}</div>
-                <span className={`text-xs font-bold ${i===step?'text-purple-400':'text-gray-400'}`}>{s}</span>
+                <span className={`text-xs font-bold whitespace-nowrap ${i===step?'text-purple-400':'text-gray-400 hidden sm:inline'}`}>{s}</span>
               </div>
               {i<STEPS.length-1 && <div className="flex-1 h-px bg-[#1a1a1a] mx-1"/>}
             </React.Fragment>
@@ -903,11 +1023,11 @@ function ToneWizardModal({ onClose, onSave }) {
                             <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-widest block mb-1.5">아티스트 (선택)</label>
-                  <input className="w-full bg-[#161616] border border-[#383838] rounded-xl px-3 py-2.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-purple-500" placeholder="예: Vaundy" value={artist} onChange={e=>setArtist(e.target.value)}/>
+                  <input className="w-full bg-[#161616] border border-[#383838] rounded-xl px-3 py-2.5 text-base sm:text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-purple-500" placeholder="예: Vaundy" value={artist} onChange={e=>setArtist(e.target.value)}/>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 uppercase tracking-widest block mb-1.5">곡 제목 (선택)</label>
-                  <input className="w-full bg-[#161616] border border-[#383838] rounded-xl px-3 py-2.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-purple-500" placeholder="예: Odoru Popeye" value={song} onChange={e=>setSong(e.target.value)}/>
+                  <input className="w-full bg-[#161616] border border-[#383838] rounded-xl px-3 py-2.5 text-base sm:text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-purple-500" placeholder="예: Odoru Popeye" value={song} onChange={e=>setSong(e.target.value)}/>
                 </div>
               </div>
 
@@ -1013,37 +1133,60 @@ function ToneWizardModal({ onClose, onSave }) {
 
 
 const SYNC_LABEL = { off:['#6b7280','로컬 저장'], syncing:['#eab308','동기화 중…'], synced:['#22c55e','동기화됨'], error:['#ef4444','동기화 오류'] };
-const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExport, fileInputRef, user, syncStatus, onSignIn, onSignOut }) => {
+// ── YouTube 레퍼런스: 원곡 기타 톤을 바로 찾아 듣고 비교 ──
+// AI/위저드 프리셋의 song 칸은 실제 곡명이 아니라 "Style: …" 같은 설명이라 검색어에서 뺌
+const hasRealArtist = a => !!a && a !== 'Custom';
+const isRealSong = s => !!s && !/^(Style:|AI Generated|Wizard$)/.test(s);
+const youtubeUrl = (artist, song) =>
+  `https://www.youtube.com/results?search_query=${encodeURIComponent(`${artist}${isRealSong(song) ? ` ${song}` : ''} guitar tone`)}`;
+const YouTubeLink = ({ artist, song, compact=false }) => (
+  <a href={youtubeUrl(artist, song)} target="_blank" rel="noopener noreferrer" title={`YouTube에서 "${artist}" 기타 톤 찾아 듣기`}
+    className={`inline-flex items-center gap-1 rounded-md border font-bold text-red-400 hover:text-white hover:bg-red-600 transition-colors ${compact?'px-1.5 py-0.5 text-[11px]':'px-2 py-1 text-[11px]'}`}
+    style={{borderColor:'#7f1d1d',background:'#1a0808'}}>▶ YouTube{compact?'':' 레퍼런스'}</a>
+);
+
+// 헤더 보조 버튼: 좁은 화면(lg 미만)에선 아이콘만
+const HeaderIconButton = ({ onClick, title, icon, label, primary=false }) => (
+  <button onClick={onClick} title={title??label} aria-label={label}
+    className={`flex items-center justify-center gap-1.5 flex-shrink-0 whitespace-nowrap h-8 min-w-8 px-2 lg:px-3 rounded-lg text-[13px] transition-colors ${primary?'bg-blue-600 hover:bg-blue-500 text-white font-black':'border border-[#404040] hover:border-blue-500/50 text-gray-500 hover:text-blue-400 font-bold'}`}>
+    {icon}<span className="hidden lg:inline">{label}</span>
+  </button>
+);
+
+const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExport, fileInputRef, user, syncStatus, onSignIn, onSignOut, onMenu }) => {
   const [dot, label] = SYNC_LABEL[syncStatus] ?? SYNC_LABEL.off;
   return (
-    <header className="flex items-center justify-between px-6 py-3 border-b border-[#303030] bg-[#111111] flex-shrink-0">
-      <div className="flex items-center gap-3">
-        <div className="bg-blue-600 p-1.5 rounded-lg shadow-lg shadow-blue-600/30"><Guitar size={16} className="text-white"/></div>
-        <div>
-          <h1 className="text-base font-black tracking-tight text-white leading-none">TONE CLOUD <span className="text-blue-500">GP-200JR</span></h1>
-          <p className="text-xs text-gray-400 uppercase tracking-[0.25em] mt-0.5">Schecter Sunset-6 Extreme · Valeton GP-200JR</p>
+    <header className="flex items-center justify-between gap-2 px-3 md:px-6 py-2.5 md:py-3 border-b border-[#303030] bg-[#111111] flex-shrink-0">
+      <div className="flex items-center gap-2 md:gap-3 min-w-0">
+        <button onClick={onMenu} aria-label="프리셋 목록 열기" className="md:hidden w-8 h-8 flex-shrink-0 flex flex-col items-center justify-center gap-1 rounded-lg border border-[#404040]">
+          <span className="w-4 h-0.5 bg-gray-300 rounded"/><span className="w-4 h-0.5 bg-gray-300 rounded"/><span className="w-4 h-0.5 bg-gray-300 rounded"/>
+        </button>
+        <div className="hidden sm:block bg-blue-600 p-1.5 rounded-lg shadow-lg shadow-blue-600/30 flex-shrink-0"><Guitar size={16} className="text-white"/></div>
+        <div className="min-w-0">
+          <h1 className="text-sm md:text-base font-black tracking-tight text-white leading-none whitespace-nowrap truncate">TONE CLOUD <span className="hidden sm:inline text-blue-500">GP-200JR</span></h1>
+          <p className="hidden lg:block text-xs text-gray-400 uppercase tracking-[0.25em] mt-0.5">Schecter Sunset-6 Extreme · Valeton GP-200JR</p>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
         <div className="hidden md:flex flex-col items-end text-xs leading-tight">
           <span className="tracking-widest" style={{color:dot}}>● {label}</span>
           <span className="text-gray-400">{presetsLength} PRESETS</span>
         </div>
         {user ? (
-          <div className="flex items-center gap-1.5 border border-[#404040] rounded-lg pl-1 pr-1.5 py-1" title={`${user.email ?? ''} · ${label}`}>
+          <div className="flex items-center gap-1.5 flex-shrink-0 h-8 border border-[#404040] rounded-lg pl-1 pr-1.5" title={`${user.email ?? ''} · ${label}`}>
             {user.photoURL
               ? <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="w-5 h-5 rounded-full"/>
               : <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center">{(user.displayName||user.email||'?')[0].toUpperCase()}</div>}
             <span className="w-1.5 h-1.5 rounded-full md:hidden" style={{background:dot}}/>
-            <button onClick={onSignOut} className="text-[11px] text-gray-500 hover:text-gray-200 font-bold">로그아웃</button>
+            <button onClick={onSignOut} className="text-[11px] text-gray-500 hover:text-gray-200 font-bold whitespace-nowrap">로그아웃</button>
           </div>
         ) : (
           <button onClick={onSignIn} title="같은 구글 계정으로 로그인하면 PC·모바일 프리셋이 자동 동기화돼요"
-            className="flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 border border-[#404040] hover:border-green-500/50 text-gray-400 hover:text-green-400 px-3 py-1.5 rounded-lg text-[13px] font-bold transition-colors">☁️ 구글 로그인</button>
+            className="flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 h-8 border border-[#404040] hover:border-green-500/50 text-gray-400 hover:text-green-400 px-2.5 md:px-3 rounded-lg text-[13px] font-bold transition-colors">☁️ <span className="hidden sm:inline">구글 </span>로그인</button>
         )}
-        <button onClick={()=>setShowBrowser(true)} className="flex items-center gap-1.5 border border-[#404040] hover:border-blue-500/50 text-gray-500 hover:text-blue-400 px-3 py-1.5 rounded-lg text-[13px] font-bold transition-colors"><BookOpen size={11}/> MODEL DB</button>
-        <button onClick={()=>fileInputRef.current?.click()} title="EXPORT로 받은 백업 JSON 불러오기" className="flex items-center gap-1.5 border border-[#404040] hover:border-blue-500/50 text-gray-500 hover:text-blue-400 px-3 py-1.5 rounded-lg text-[13px] font-bold transition-colors"><Upload size={11}/> IMPORT</button>
-        <button onClick={()=>setShowExport(true)}  className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-[13px] font-black transition-colors"><Download size={11}/> EXPORT</button>
+        <HeaderIconButton onClick={()=>setShowBrowser(true)} icon={<BookOpen size={13}/>} label="MODEL DB" title="GP-200JR 모델 DB"/>
+        <HeaderIconButton onClick={()=>fileInputRef.current?.click()} icon={<Upload size={13}/>} label="IMPORT" title="EXPORT로 받은 백업 JSON 불러오기"/>
+        <HeaderIconButton onClick={()=>setShowExport(true)} icon={<Download size={13}/>} label="EXPORT" title="프리셋 내보내기" primary/>
       </div>
     </header>
   );
@@ -1058,20 +1201,29 @@ const PresetSidebar = React.memo(({
   setSearch,
   activeTags,
   toggleTag,
-  allTags
+  allTags,
+  open,
+  onClose
 }) => {
   const filtered = presets.filter(p => {
     const lq = search.toLowerCase();
     return (!lq || p.name.toLowerCase().includes(lq) || p.artist.toLowerCase().includes(lq))
         && (activeTags.length === 0 || activeTags.every(t => p.tags.includes(t)));
   });
-  
+
+  // md(768px) 미만: 왼쪽에서 열리는 서랍 / 이상: 항상 보이는 사이드바
   return (
-    <aside className="w-60 flex-shrink-0 flex flex-col border-r border-[#2a2a2a] bg-[#111111] overflow-hidden">
+    <>
+    {open && <div onClick={onClose} className="md:hidden fixed inset-0 z-30 bg-black/55"/>}
+    <aside className={`fixed inset-y-0 left-0 z-40 w-[82vw] max-w-[300px] transition-transform duration-200 ${open?'translate-x-0 shadow-2xl':'-translate-x-full'} md:static md:z-auto md:w-60 md:max-w-none md:translate-x-0 md:shadow-none flex-shrink-0 flex flex-col border-r border-[#2a2a2a] bg-[#111111] overflow-hidden`}>
+      <div className="md:hidden flex items-center justify-between px-3 py-2.5 border-b border-[#2a2a2a]">
+        <span className="text-xs font-black text-gray-300 tracking-widest">PRESETS</span>
+        <button onClick={onClose} aria-label="닫기" className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#404040] text-gray-400"><X size={14}/></button>
+      </div>
       <div className="p-3 border-b border-[#2a2a2a]">
         <div className="relative">
           <Search size={11} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-          <input className="w-full bg-[#161616] border border-[#383838] rounded-lg pl-8 pr-3 py-2 text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:border-blue-600 transition-colors"
+          <input className="w-full bg-[#161616] border border-[#383838] rounded-lg pl-8 pr-3 py-2 text-base md:text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:border-blue-600 transition-colors"
             placeholder="SEARCH PRESETS..." value={search} onChange={e=>setSearch(e.target.value)}/>
         </div>
       </div>
@@ -1089,7 +1241,7 @@ const PresetSidebar = React.memo(({
           {filtered.map(preset=>{
             const isActive=preset.id===activeId;
             return (
-              <button key={preset.id} onClick={()=>{setActiveId(preset.id);setSelBlockId(null);}} className={`w-full text-left px-2.5 py-2 rounded-lg transition-all ${isActive?'bg-blue-600/12 border border-blue-500/25':'border border-transparent hover:bg-[#0e0e0e]'}`}>
+              <button key={preset.id} onClick={()=>{setActiveId(preset.id);setSelBlockId(null);onClose?.();}} className={`w-full text-left px-2.5 py-2 rounded-lg transition-all ${isActive?'bg-blue-600/12 border border-blue-500/25':'border border-transparent hover:bg-[#0e0e0e]'}`}>
                 <div className="flex items-start justify-between gap-1">
                   <div className="min-w-0">
                     <div className={`text-sm font-bold truncate ${isActive?'text-blue-400':'text-gray-300'}`}>{preset.name}</div>
@@ -1110,11 +1262,14 @@ const PresetSidebar = React.memo(({
         </div>
       </div>
     </aside>
+    </>
   );
 }, (prevProps, nextProps) => {
   if (prevProps.activeId !== nextProps.activeId) return false;
+  if (prevProps.open !== nextProps.open) return false;
   if (prevProps.search !== nextProps.search) return false;
-  if (prevProps.activeTags.length !== nextProps.activeTags.length) return false;
+  if (prevProps.activeTags.join('\n') !== nextProps.activeTags.join('\n')) return false;
+  if (prevProps.allTags.join('\n') !== nextProps.allTags.join('\n')) return false;
   if (prevProps.presets.length !== nextProps.presets.length) return false;
   
   // Custom comparison to check metadata changes only
@@ -1147,19 +1302,22 @@ const ToneCloudFooter = React.memo(({
   setAiPreview,
   aiError,
   setAiError,
-  aiNote
+  aiNote,
+  aiCandidates,
+  onPickCandidate,
+  onCancelCandidates
 }) => {
   return (
-    <footer className="border-t border-[#2a2a2a] bg-[#111111] px-6 py-4 flex-shrink-0 space-y-4">
+    <footer className="border-t border-[#2a2a2a] bg-[#111111] px-3 md:px-6 py-3 md:py-4 flex-shrink-0 space-y-3 md:space-y-4">
       {aiPreview ? (
-        <div className="rounded-xl p-4 border bg-[#080f1c] border-[#3b82f630]">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Sparkles size={12} className="text-blue-400 animate-pulse"/>
-              <span className="text-sm font-bold text-white">{aiPreview.name}</span>
-              <span className="text-xs bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30">AI TONE</span>
+        <div className="rounded-xl p-3 md:p-4 border bg-[#080f1c] border-[#3b82f630] max-h-[55vh] overflow-y-auto">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <Sparkles size={12} className="text-blue-400 animate-pulse flex-shrink-0"/>
+              <span className="text-sm font-bold text-white truncate">{aiPreview.name}</span>
+              <span className="text-xs bg-blue-600/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 flex-shrink-0">AI TONE</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 ml-auto">
               <button onClick={()=>setAiPreview(null)} className="flex items-center gap-1 text-[13px] text-gray-400 hover:text-gray-300 hover:border-gray-500 px-2.5 py-1.5 rounded-lg border border-[#404040] transition-colors"><X size={10}/> DISCARD</button>
               <button onClick={saveAI} className="flex items-center gap-1.5 text-[13px] text-white bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg font-bold transition-colors"><Save size={10}/> SAVE PRESET</button>
             </div>
@@ -1204,7 +1362,43 @@ const ToneCloudFooter = React.memo(({
               </div>
             </div>
           </div>
-          {aiNote && <div className="mt-2.5 text-[11px] text-gray-400">🔎 판단 근거: {aiNote}</div>}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            {aiNote && <span className="text-[11px] text-gray-400">🔎 판단 근거: {aiNote}</span>}
+            {hasRealArtist(aiPreview.artist) && <YouTubeLink artist={aiPreview.artist} song={aiPreview.song}/>}
+          </div>
+        </div>
+      ) : aiCandidates ? (
+        // ── "이 아티스트가 맞나요?" — MusicBrainz 후보 중 고르기 ──
+        <div className="rounded-xl p-3 md:p-4 border bg-[#071a0f] border-[#22c55e40] max-h-[55vh] overflow-y-auto">
+          <div className="flex items-center justify-between gap-2 mb-2.5">
+            <span className="text-sm font-bold text-green-300">🎸 이 아티스트가 맞나요?</span>
+            <button onClick={onCancelCandidates} className="flex items-center gap-1 text-[12px] text-gray-400 hover:text-white px-2.5 py-1 rounded-lg border border-[#404040]"><X size={10}/> 취소</button>
+          </div>
+          <div className="space-y-1.5">
+            {aiCandidates.list.map((a, i) => {
+              const tags = (a.tags || []).slice().sort((x, y) => y.count - x.count).slice(0, 4).map(t => t.name);
+              const meta = [a.type === 'Group' ? '밴드' : a.type === 'Person' ? '솔로' : a.type, a.country || a.area?.name, a['life-span']?.begin && `${a['life-span'].begin.slice(0, 4)}~`].filter(Boolean).join(' · ');
+              return (
+                <button key={a.id ?? i} onClick={()=>onPickCandidate(aiCandidates.query, a)}
+                  className="w-full text-left flex items-center gap-3 p-2.5 rounded-lg border border-[#22c55e25] bg-black/30 hover:border-green-500/60 hover:bg-green-900/20 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-black text-white truncate">{a.name}{a.disambiguation && <span className="ml-1.5 text-xs font-normal text-gray-400">({a.disambiguation})</span>}</div>
+                    {meta && <div className="text-[11px] text-gray-500 mt-0.5">{meta}</div>}
+                    {tags.length > 0
+                      ? <div className="flex flex-wrap gap-1 mt-1">{tags.map(t => <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full border border-[#383838] text-gray-400">{t}</span>)}</div>
+                      : <div className="text-[10px] text-gray-600 mt-1">장르 태그 없음 → 기본 톤으로 생성</div>}
+                  </div>
+                  <span className="flex-shrink-0 text-xs font-black text-green-400">선택 →</span>
+                </button>
+              );
+            })}
+            {aiCandidates.genreOption && (
+              <button onClick={()=>onPickCandidate(aiCandidates.query, null)}
+                className="w-full text-left p-2.5 rounded-lg border border-dashed border-[#404040] text-xs text-gray-400 hover:text-white hover:border-gray-500">
+                🎼 아티스트 말고 장르 "<strong>{aiCandidates.query}</strong>"로 만들기
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <>
@@ -1213,22 +1407,24 @@ const ToneCloudFooter = React.memo(({
               <X size={13}/> {aiError}
             </div>
           )}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 flex-shrink-0">
+          {/* 폰: 입력창 한 줄 + 버튼 두 개 한 줄 / PC: 한 줄 */}
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 md:gap-3">
+            <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
               <Sparkles size={13} className="text-blue-500"/>
-              <span className="text-xs text-gray-400 uppercase tracking-widest hidden sm:block">AI TONE</span>
+              <span className="text-xs text-gray-400 uppercase tracking-widest">AI TONE</span>
             </div>
-            <input className="flex-1 bg-[#161616] border border-[#383838] rounded-xl px-4 py-2.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-blue-600 transition-colors"
-              placeholder="아티스트 입력 (HigeDan / Vaundy / YOASOBI / Metallica…)"
+            {/* 폰에선 16px — iOS 가 입력 시 화면을 확대하지 않도록 */}
+            <input className="basis-full sm:basis-auto flex-1 min-w-0 bg-[#161616] border border-[#383838] rounded-xl px-4 py-2.5 text-base sm:text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-blue-600 transition-colors"
+              placeholder="아티스트 또는 장르 (YOASOBI / Metallica / jazz…)"
               value={aiQuery} onChange={e=>{setAiQuery(e.target.value);setAiError(null);}} onKeyDown={e=>e.key==='Enter'&&!aiLoading&&handleGenerate()}/>
             <button onClick={handleGenerate} disabled={aiLoading||!aiQuery.trim()}
-              className="flex items-center gap-2 bg-white hover:bg-blue-400 disabled:opacity-30 text-black px-4 py-2.5 rounded-xl text-xs font-black transition-colors flex-shrink-0">
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-white hover:bg-blue-400 disabled:opacity-30 text-black px-4 py-2.5 rounded-xl text-xs font-black transition-colors flex-shrink-0">
               {aiLoading?<div className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin"/>:<Zap size={13} fill="currentColor"/>}
               ANALYZE
             </button>
-            <div className="h-7 w-px bg-[#1e1e1e] flex-shrink-0"/>
+            <div className="hidden sm:block h-7 w-px bg-[#1e1e1e] flex-shrink-0"/>
             <button onClick={()=>setShowWizard(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black flex-shrink-0 transition-all hover:scale-105"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black flex-shrink-0 whitespace-nowrap transition-all md:hover:scale-105"
               style={{background:'linear-gradient(135deg,#6d28d9,#4c1d95)',color:'white',boxShadow:'0 0 12px #7c3aed44'}}>
               <span className="text-sm leading-none">🎛</span> CUSTOM BUILDER
             </button>
@@ -1236,16 +1432,16 @@ const ToneCloudFooter = React.memo(({
         </>
       )}
 
-      <div className="flex items-center justify-between pt-3 border-t border-[#1f1f1f] text-xs">
-        <div className="flex items-center gap-2 text-gray-500">
+      <div className="flex items-center justify-between gap-2 pt-2.5 md:pt-3 border-t border-[#1f1f1f] text-xs">
+        <div className="hidden lg:flex items-center gap-2 text-gray-500">
           <span className="w-2 h-2 rounded-full bg-blue-500/85"/>
           <span>Guitar Model: <strong>Schecter Sunset-6 Extreme</strong> (Fixed)</span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">OUTPUT MODE</span>
-          <div className="flex bg-[#161616] p-0.5 rounded-lg border border-[#2a2a2a]">
-            <button onClick={()=>setUseCab(true)} className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all ${useCab?'bg-blue-600 text-white shadow-sm':'text-gray-500 hover:text-gray-300'}`}>Direct / Mixer (CAB ON)</button>
-            <button onClick={()=>setUseCab(false)} className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all ${!useCab?'bg-blue-600 text-white shadow-sm':'text-gray-500 hover:text-gray-300'}`}>Amp Return (CAB OFF)</button>
+        <div className="flex items-center gap-2 md:gap-3 w-full lg:w-auto">
+          <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest flex-shrink-0">OUTPUT<span className="hidden sm:inline"> MODE</span></span>
+          <div className="flex flex-1 lg:flex-none bg-[#161616] p-0.5 rounded-lg border border-[#2a2a2a]">
+            <button onClick={()=>setUseCab(true)} className={`flex-1 px-2 md:px-3 py-1.5 rounded-md text-[10px] font-bold whitespace-nowrap transition-all ${useCab?'bg-blue-600 text-white shadow-sm':'text-gray-500 hover:text-gray-300'}`}>🎧 Direct<span className="hidden sm:inline"> / Mixer</span> (CAB ON)</button>
+            <button onClick={()=>setUseCab(false)} className={`flex-1 px-2 md:px-3 py-1.5 rounded-md text-[10px] font-bold whitespace-nowrap transition-all ${!useCab?'bg-blue-600 text-white shadow-sm':'text-gray-500 hover:text-gray-300'}`}>⚡ Amp Return (CAB OFF)</button>
           </div>
         </div>
       </div>
@@ -1257,6 +1453,7 @@ const ToneCloudFooter = React.memo(({
          prev.aiLoading === next.aiLoading &&
          prev.aiError === next.aiError &&
          prev.aiNote === next.aiNote &&
+         prev.aiCandidates === next.aiCandidates &&
          prev.useCab === next.useCab;
 });
 
@@ -1363,7 +1560,10 @@ function ToneCloudApp() {
   const [showWizard,setShowWizard]=useState(false);
   const [aiError,setAiError]=useState(null);
   const [aiNote,setAiNote]=useState(null);
+  const [aiCandidates,setAiCandidates]=useState(null);   // { query, list: MusicBrainz 아티스트[], genreOption }
   const [toast,setToast]=useState(null);
+  const [showDrawer,setShowDrawer]=useState(false);    // 폰: 프리셋 목록 서랍
+  const [showSettingCard,setShowSettingCard]=useState(false);
   const [editingName,setEditingName]=useState(null);   // 이름 변경 중일 때 입력값
   const [confirmDelete,setConfirmDelete]=useState(false);
   const fileInputRef = useRef(null);
@@ -1526,12 +1726,44 @@ function ToneCloudApp() {
   const selColor   = selBlock?(FX_COLOR[selBlock.cat]??FX_COLOR.EQ):null;
   const selDbEntry = selBlock?MODEL_DB[selBlock.cat]?.models.find(m=>m.name===selBlock.model||m.id===selBlock.model):null;
   const toggleTag  = tag => setActiveTags(prev=>prev.includes(tag)?prev.filter(t=>t!==tag):[...prev,tag]);
+  // 2단계 ① 태그로 톤 만들기 — artist 가 null 이면 입력어만으로 장르 판단
+  const buildFromTags = (query, artist) => {
+    const lq = query.toLowerCase();
+    // 득표수(count) 높은 태그가 그 아티스트의 대표 장르
+    const tags = (artist?.tags || []).slice().sort((a, b) => b.count - a.count).map(t => t.name.toLowerCase());
+    // 검색창에 직접 장르를 쳤을 경우를 대비해 원본 검색어도 보조 태그로 추가 (우선순위는 가장 낮음)
+    const combinedTags = [...tags, lq, ...lq.split(/[\s,]+/)];
+    const { rule, matched, matchedTag } = window.GenreMapper.mapGenreToHardware(combinedTags);
+    const params = window.GenreMapper.ruleToWizardParams(rule);
+    const base = wizardGenerate({
+      artist: artist?.name || query,
+      song: matched ? `Style: ${rule.label}` : 'AI Generated (Fallback)',
+      genres: params.genres,
+      gainIdx: params.gainIdx,
+      brightIdx: params.brightIdx,
+      spaceIdx: params.spaceIdx,
+      fxOn: params.fxOn,
+      delayModel: null,
+      reverbModel: null,
+      useCab: true // CAB 은 항상 넣어두고, 앰프 리턴 모드에선 화면에서 꺼진 것으로 표시
+    });
+    // 룰에 정의된 장비를 최종값으로 반영 (toneValidator 로 다시 덮어쓰지 않음)
+    const preset = applyRuleHardware({ ...base, id: `ai-${Date.now()}`, isAI: true }, rule);
+    setAiNote(!artist
+      ? `입력어 "${matchedTag}"로 장르 판단 → ${rule.label}`
+      : matched
+        ? `${artist.name} · MusicBrainz 태그 "${matchedTag}" → ${rule.label}`
+        : `${artist.name} · 장르 태그 없음 → 기본 톤(${rule.label})`);
+    setAiCandidates(null);
+    setAiPreview(preset);
+  };
+
+  // 2단계 ② MusicBrainz 검색 → 후보가 있으면 "이 아티스트가 맞나요?" 카드로 확인받기
   const handleGenerate = async () => {
     const query = aiQuery.trim();
     if (!query) return;
-    setAiLoading(true); setAiError(null);
+    setAiLoading(true); setAiError(null); setAiCandidates(null);
     try {
-      // 1. MusicBrainz API로 아티스트 분석하여 진짜 장르/태그 가져오기
       const res = await fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(query)}&fmt=json&limit=5`);
       if (!res.ok) {
         setAiError(res.status === 503
@@ -1540,50 +1772,24 @@ function ToneCloudApp() {
         return;
       }
       const data = await res.json();
-
-      // 검색 점수 90 미만은 엉뚱한 아티스트일 가능성이 커서 쓰지 않음.
-      // 입력어 자체가 장르(예: metal, j-pop)면 이름이 정확히 같은 아티스트만 인정
-      // (안 그러면 'metal' 검색에 "Various Artists" 같은 결과가 걸림)
       const lq = query.toLowerCase();
-      const queryIsGenre = window.GenreMapper.mapGenreToHardware([lq]).matched;
+      const map = t => window.GenreMapper.mapGenreToHardware(t).matched;
+      const queryIsGenre = map([lq]);                          // 입력 전체가 장르 (metal, j-pop …)
+      const hasGenreWord = map([lq, ...lq.split(/[\s,]+/)]);   // 장르 단어가 섞여 있음 (ONE OK ROCK …)
       const nameIs = a => [a.name, a['sort-name'], ...(a.aliases || []).map(x => x.name)].some(n => n?.toLowerCase() === lq);
-      const artist = (data.artists || []).find(a => a.score >= 90 && (!queryIsGenre || nameIs(a))) ?? null;
-      // 득표수(count) 높은 태그가 그 아티스트의 대표 장르
-      const tags = (artist?.tags || []).slice().sort((a, b) => b.count - a.count).map(t => t.name.toLowerCase());
 
-      // 검색창에 직접 장르를 쳤을 경우를 대비해 원본 검색어도 보조 태그로 추가 (우선순위는 가장 낮음)
-      const combinedTags = [...tags, lq, ...lq.split(/[\s,]+/)];
+      // 점수 75 미만은 엉뚱한 결과. 입력이 장르 자체면 이름이 정확히 같은 아티스트만
+      // (안 그러면 'metal' 검색에 "Various Artists" 같은 결과가 걸림)
+      let candidates = (data.artists || []).filter(a => a.score >= 75);
+      if (queryIsGenre) candidates = candidates.filter(nameIs);
+      candidates = candidates.slice(0, 3);
 
-      // 2. genreMapper 룰셋 매핑
-      const { rule, matched, matchedTag } = window.GenreMapper.mapGenreToHardware(combinedTags);
-      if (!artist && !matched) {
+      if (!candidates.length) {
+        if (hasGenreWord) { buildFromTags(query, null); return; }
         setAiError(`'${query}' 아티스트나 장르를 찾지 못했어요. 영문 표기(예: ONE OK ROCK) 또는 장르(예: metal, j-pop)로 입력해보세요.`);
         return;
       }
-      const params = window.GenreMapper.ruleToWizardParams(rule);
-
-      // 3. 실제 파라미터를 기반으로 AI 톤 자동 생성
-      const base = wizardGenerate({
-        artist: artist?.name || query,
-        song: matched ? `Style: ${rule.label}` : 'AI Generated (Fallback)',
-        genres: params.genres,
-        gainIdx: params.gainIdx,
-        brightIdx: params.brightIdx,
-        spaceIdx: params.spaceIdx,
-        fxOn: params.fxOn,
-        delayModel: null,
-        reverbModel: null,
-        useCab: true // CAB 은 항상 넣어두고, 앰프 리턴 모드에선 화면에서 꺼진 것으로 표시
-      });
-
-      // 3. 룰에 정의된 장비를 최종값으로 반영 (toneValidator 로 다시 덮어쓰지 않음)
-      const preset = applyRuleHardware({ ...base, id: `ai-${Date.now()}`, isAI: true }, rule);
-      setAiNote(!artist
-        ? `아티스트를 찾지 못해 입력어 "${matchedTag}"로 장르 추정 → ${rule.label}`
-        : matched
-          ? `${artist.name} · MusicBrainz 태그 "${matchedTag}" → ${rule.label}`
-          : `${artist.name} · 장르 태그 없음 → 기본 톤(${rule.label})`);
-      setAiPreview(preset);
+      setAiCandidates({ query, list: candidates, genreOption: hasGenreWord });
     } catch (e) {
       console.error(e);
       setAiError('네트워크 오류로 MusicBrainz에 연결하지 못했어요. 인터넷 연결을 확인해주세요.');
@@ -1668,9 +1874,11 @@ function ToneCloudApp() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-gray-200 flex flex-col" style={{fontFamily:"'Courier New',Courier,monospace"}}>
+    // 화면 높이에 고정: 헤더·하단 AI 입력은 항상 보이고 가운데만 스크롤 (dvh = 폰 주소창 높이 변화 반영)
+    <div className="h-screen h-[100dvh] overflow-hidden bg-[#0a0a0a] text-gray-200 flex flex-col" style={{fontFamily:"'Courier New',Courier,monospace"}}>
       {showBrowser && <ModelBrowser onClose={()=>setShowBrowser(false)}/>}
       {showExport  && <ExportModal presets={presets} active={active} onClose={()=>setShowExport(false)}/>}
+      {showSettingCard && <SettingCardModal preset={active} useCab={useCab} onClose={()=>setShowSettingCard(false)} onToast={showToast}/>}
       {showWizard  && <ToneWizardModal onClose={()=>setShowWizard(false)} onSave={(preset)=>{rememberOriginal(preset);setPresets(prev=>[preset,...prev]);setActiveId(preset.id);setSelBlockId(null);}}/>}
 
       <SlideInPanel block={selBlock} dbEntry={selDbEntry} color={selColor??{border:'#3b82f6',bg:'#0a1628',text:'#60a5fa'}}
@@ -1679,10 +1887,10 @@ function ToneCloudApp() {
         onToggleActive={()=>toggleBlockActive(selBlock.id)} onReset={()=>resetBlockParams(selBlock.id)}/>
 
       <ToneCloudHeader presetsLength={presets.length} setShowBrowser={setShowBrowser} setShowExport={setShowExport} fileInputRef={fileInputRef}
-        user={user} syncStatus={syncStatus} onSignIn={signIn} onSignOut={signOut} />
+        user={user} syncStatus={syncStatus} onSignIn={signIn} onSignOut={signOut} onMenu={()=>setShowDrawer(true)} />
       <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFile}/>
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl border border-[#404040] bg-[#161616] text-sm font-bold text-gray-100 shadow-2xl" role="status">{toast}</div>
+        <div className="fixed bottom-32 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] w-max max-w-[92vw] text-center px-4 py-2.5 rounded-xl border border-[#404040] bg-[#161616] text-sm font-bold text-gray-100 shadow-2xl" role="status">{toast}</div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
@@ -1696,11 +1904,13 @@ function ToneCloudApp() {
           activeTags={activeTags}
           toggleTag={toggleTag}
           allTags={allTags}
+          open={showDrawer}
+          onClose={()=>setShowDrawer(false)}
         />
 
-        <main className="flex-1 flex flex-col overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#2a2a2a] flex-shrink-0">
-            <div className="flex items-start justify-between gap-3">
+        <main className="flex-1 min-w-0 flex flex-col overflow-y-auto">
+          <div className="px-4 md:px-6 py-3 md:py-4 border-b border-[#2a2a2a] flex-shrink-0">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   {active.isAI&&<Sparkles size={13} className="text-blue-400 flex-shrink-0"/>}
@@ -1708,21 +1918,22 @@ function ToneCloudApp() {
                     <input autoFocus value={editingName} maxLength={80}
                       onChange={e=>setEditingName(e.target.value)} onBlur={commitRename}
                       onKeyDown={e=>{if(e.key==='Enter')commitRename();if(e.key==='Escape')setEditingName(null);}}
-                      className="flex-1 min-w-0 bg-[#161616] border border-blue-600 rounded-lg px-2 py-1 text-lg font-black text-white focus:outline-none"/>
+                      className="flex-1 min-w-0 bg-[#161616] border border-blue-600 rounded-lg px-2 py-1 text-base md:text-lg font-black text-white focus:outline-none"/>
                   ) : (
-                    <h2 onDoubleClick={()=>setEditingName(active.name)} title="더블클릭해서 이름 변경" className="text-xl font-black text-white tracking-tight truncate">{active.name}</h2>
+                    <h2 onDoubleClick={()=>setEditingName(active.name)} title="더블클릭해서 이름 변경" className="text-lg md:text-xl font-black text-white tracking-tight leading-snug break-words sm:truncate">{active.name}</h2>
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 mt-1.5">
                   <span className="text-[13px] text-gray-500 flex items-center gap-1"><Music size={10}/>{active.artist}</span>
                   {active.song&&<span className="text-[13px] text-gray-400">"{active.song}"</span>}
+                  {hasRealArtist(active.artist)&&<YouTubeLink artist={active.artist} song={active.song} compact/>}
                   <span className="text-xs bg-blue-900/25 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase tracking-wider">{active.pickup}</span>
                 </div>
               </div>
-              <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                <div className="flex items-center" title="별점 (같은 별을 다시 누르면 0점)">
+              <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 flex-shrink-0">
+                <div className="flex items-center -ml-1 sm:ml-0" title="별점 (같은 별을 다시 누르면 0점)">
                   {[1,2,3,4,5].map(s=>(
-                    <button key={s} onClick={()=>setRating(s)} aria-label={`별점 ${s}점`} className="p-0.5 hover:scale-125 transition-transform">
+                    <button key={s} onClick={()=>setRating(s)} aria-label={`별점 ${s}점`} className="p-1 sm:p-0.5 md:hover:scale-125 transition-transform">
                       <Star size={13} className={s<=active.rating?'text-yellow-500 fill-yellow-500':'text-gray-600 hover:text-yellow-500'}/>
                     </button>
                   ))}
@@ -1742,10 +1953,12 @@ function ToneCloudApp() {
             </div>
           </div>
 
-          <div className="px-6 py-4 border-b border-[#2a2a2a] flex-shrink-0">
+          <div className="px-4 md:px-6 py-3 md:py-4 border-b border-[#2a2a2a] flex-shrink-0">
             <div className="flex items-center gap-2 mb-3">
-              <Activity size={10} className="text-gray-400"/>
-              <span className="text-xs text-gray-400 uppercase tracking-widest">SIGNAL CHAIN — VALETON GP-200JR</span>
+              <Activity size={10} className="text-gray-400 flex-shrink-0"/>
+              <span className="text-xs text-gray-400 uppercase tracking-widest truncate">SIGNAL CHAIN<span className="hidden sm:inline"> — VALETON GP-200JR</span></span>
+              <button onClick={()=>setShowSettingCard(true)} title="GP-200JR에 따라 입력할 수 있는 블록별 체크리스트"
+                className="ml-auto flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-green-500/30 bg-green-900/10 text-[11px] font-bold text-green-400 hover:bg-green-600 hover:text-white transition-colors">📋 세팅 카드</button>
             </div>
             <div className="flex items-center gap-1 overflow-x-auto pb-1">
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -1777,14 +1990,16 @@ function ToneCloudApp() {
             )}
           </div>
 
-          <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 px-6">
-            <div className="w-16 h-16 rounded-2xl border border-[#383838] flex items-center justify-center mb-1" style={{background:'#0d0d0d'}}>
+          <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 px-4 md:px-6 py-4">
+            {/* 폰에선 큰 안내 대신 한 줄 힌트 + 한눈에 보이는 블록 목록 */}
+            <div className="hidden md:flex w-16 h-16 rounded-2xl border border-[#383838] items-center justify-center mb-1" style={{background:'#0d0d0d'}}>
               <Sliders size={28} className="text-gray-500"/>
             </div>
-            <p className="text-gray-300 text-sm font-bold">시그널 체인 블록을 클릭하세요</p>
-            <p className="text-gray-400 text-xs leading-relaxed max-w-xs">우측에서 GP-200JR 스타일 노브 패널이 슬라이드 인 됩니다.<br/>드래그·더블클릭·+/- 버튼으로 값을 조절할 수 있습니다.</p>
-            <button onClick={()=>setShowBrowser(true)} className="mt-2 flex items-center gap-1.5 text-[13px] text-blue-500 hover:text-blue-400 border border-blue-500/20 hover:border-blue-500/40 px-3 py-1.5 rounded-lg transition-colors"><BookOpen size={11}/> GP-200JR 모델 브라우저 열기</button>
-            <div className="mt-6 w-full max-w-md">
+            <p className="hidden md:block text-gray-300 text-sm font-bold">시그널 체인 블록을 클릭하세요</p>
+            <p className="hidden md:block text-gray-400 text-xs leading-relaxed max-w-xs">우측에서 GP-200JR 스타일 노브 패널이 슬라이드 인 됩니다.<br/>드래그·더블클릭·+/- 버튼으로 값을 조절할 수 있습니다.</p>
+            <p className="md:hidden text-gray-400 text-xs">블록을 탭하면 노브 패널이 열려요</p>
+            <button onClick={()=>setShowBrowser(true)} className="hidden md:flex mt-2 items-center gap-1.5 text-[13px] text-blue-500 hover:text-blue-400 border border-blue-500/20 hover:border-blue-500/40 px-3 py-1.5 rounded-lg transition-colors"><BookOpen size={11}/> GP-200JR 모델 브라우저 열기</button>
+            <div className="md:mt-6 w-full max-w-md">
               <div className="text-xs text-gray-500 uppercase tracking-widest mb-2">ACTIVE CHAIN</div>
               <div className="flex flex-wrap justify-center gap-1.5">
                 {active.chain.map(b=>{const c=FX_COLOR[b.cat]??FX_COLOR.EQ;return(
@@ -1811,6 +2026,9 @@ function ToneCloudApp() {
         aiError={aiError}
         setAiError={setAiError}
         aiNote={aiNote}
+        aiCandidates={aiCandidates}
+        onPickCandidate={(query, artist)=>buildFromTags(query, artist)}
+        onCancelCandidates={()=>setAiCandidates(null)}
       />
     </div>
   );
