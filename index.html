@@ -423,7 +423,7 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md' }
   return prev.value === next.value && prev.color === next.color && prev.size === next.size && prev.label === next.label;
 });
 
-function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleActive, onReset }) {
+function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleActive, onReset, note }) {
   const isOpen = !!block;
   return (
     <>
@@ -450,6 +450,9 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
                   <span className="font-bold" style={{color:color.text}}>{dbEntry.base}</span>
                   <div className="text-gray-400 mt-0.5">{dbEntry.desc}</div>
                 </div>
+              )}
+              {note && (
+                <div className="rounded-lg px-3 py-2 mb-3 text-xs font-bold bg-orange-900/15 border border-orange-500/30 text-orange-300">⚠️ {note}</div>
               )}
               <div className="flex items-center gap-2">
                 <button onClick={onToggleActive} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border font-bold text-[13px] uppercase tracking-wider transition-all"
@@ -497,22 +500,26 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
   );
 }
 
-const ChainBlock = React.memo(({ block, isSelected, onClick }) => {
+// forcedOff: 앰프 리턴 모드에서 CAB 처럼, 저장된 상태와 별개로 "꺼진 것"으로만 보여줄 때
+const ChainBlock = React.memo(({ block, isSelected, onClick, forcedOff=false }) => {
   const col = FX_COLOR[block.cat]??FX_COLOR.EQ;
+  const on = block.active && !forcedOff;
   return (
     <div className="flex items-center gap-1 flex-shrink-0">
-      <button onClick={onClick}
-        style={{background:isSelected?col.bg:'#0d0d0d',borderColor:isSelected?col.border:`${col.border}30`,boxShadow:isSelected?`0 0 12px ${col.border}40`:'none',opacity:block.active?1:0.35,transform:isSelected?'scale(1.07)':'scale(1)'}}
+      <button onClick={onClick} title={forcedOff?'앰프 리턴 모드: 기기에서 CAB을 끄세요':undefined}
+        style={{background:isSelected?col.bg:'#0d0d0d',borderColor:isSelected?col.border:`${col.border}30`,boxShadow:isSelected?`0 0 12px ${col.border}40`:'none',opacity:on?1:0.35,transform:isSelected?'scale(1.07)':'scale(1)'}}
         className="relative min-w-[72px] p-2.5 rounded-xl border-2 transition-all duration-150 text-center">
         <div className="text-sm font-black tracking-widest mb-1 uppercase" style={{color:col.text}}>{FX_LABEL[block.cat]??block.cat}</div>
-        <Power size={10} className="mx-auto mb-1" style={{color:block.active?col.border:'#374151'}}/>
+        <Power size={10} className="mx-auto mb-1" style={{color:on?col.border:'#374151'}}/>
         <div className="text-sm truncate" style={{color:col.text+'aa'}}>{block.model}</div>
+        {forcedOff && <div className="text-[10px] mt-0.5 text-orange-400 font-bold">AMP RTN · OFF</div>}
       </button>
       <ChevronRight size={10} className="text-gray-500"/>
     </div>
   );
 }, (prev, next) => {
   return prev.isSelected === next.isSelected &&
+         prev.forcedOff === next.forcedOff &&
          prev.block.active === next.block.active &&
          prev.block.model === next.block.model &&
          prev.block.cat === next.block.cat;
@@ -722,12 +729,55 @@ function wizardGenerate({ artist, song, genres, gainIdx, brightIdx, spaceIdx, fx
   if (fxOn.includes('reverb')||spaceIdx>=1) chain.push({cat:'RVB',model:reverbModel??(gainIdx>=3?'Room':REVERB_TYPES[Math.min(spaceIdx+1,5)]),active:true,params:{Decay:Math.min(72,25+spaceIdx*13),Mix:Math.min(52,10+spaceIdx*9)}});
   const gainName=GAIN_LEVELS[gainIdx];
   const name=artist&&song?`Wizard: ${artist} — ${song}`:artist?`Wizard: ${artist} ${gainName}`:`Wizard: ${gainName} / ${BRIGHT_LEVELS[brightIdx]}`;
-  return {id,name,artist:artist||'Custom',song:song||'Wizard',tags:[gainName.toLowerCase().replace(' ','-'),...genres.slice(0,3)],pickup:['Neck (1st)','Neck Split (2nd)','Mid (3rd)','Bridge Split (4th)','Bridge HB'][Math.min(gainIdx+1,4)],rating:0,isAI:true,chain:chain.map((b,i)=>({...b,id:`${id}-${i}`}))};
+  // 드라이브 페달은 MODEL_DB 기준 카테고리로 표시 (Revolt 등은 OD가 아니라 DST)
+  return {id,name,artist:artist||'Custom',song:song||'Wizard',tags:[gainName.toLowerCase().replace(' ','-'),...genres.slice(0,3)],pickup:['Neck (1st)','Neck Split (2nd)','Mid (3rd)','Bridge Split (4th)','Bridge HB'][Math.min(gainIdx+1,4)],rating:0,isAI:true,chain:chain.map((b,i)=>({...b,cat:b.cat==='OD'?(modelCategory(b.model)??'OD'):b.cat,id:`${id}-${i}`}))};
+}
+
+// MODEL_DB 에서 모델이 속한 카테고리 찾기 (예: 'Revolt' → 'DST')
+function modelCategory(name) {
+  for (const [cat, entry] of Object.entries(MODEL_DB)) {
+    if (entry.models?.some(m => m.name === name || m.id === name)) return cat;
+  }
+  return null;
+}
+
+// 픽업 표기를 Schecter 5-way 셀렉터 표기('Position N: ...')로 통일
+function normalizePickup(pk) {
+  const p = String(pk).toLowerCase();
+  if (p.includes('bridge hb') || p.includes('position 1') || p.includes('full bridge')) return 'Position 1: Full Bridge';
+  if (p.includes('bridge split') || p.includes('4th') || p.includes('position 2') || p.includes('inner coils')) return 'Position 2: Inner Coils';
+  if (p.includes('mid') || p.includes('3rd') || p.includes('position 3') || p.includes('both humbuckers')) return 'Position 3: Both Humbuckers';
+  if (p.includes('neck split') || p.includes('2nd') || p.includes('position 4') || p.includes('outer coils')) return 'Position 4: Outer Coils';
+  if (p.includes('neck (1st)') || p.includes('1st') || p.includes('position 5') || p.includes('full neck')) return 'Position 5: Full Neck';
+  return pk;
+}
+
+// GenreMapper 룰에 적힌 장비(앰프·드라이브·캐비닛·노이즈게이트·픽업)를 체인에 그대로 반영
+function applyRuleHardware(preset, rule) {
+  let chain = preset.chain.map(b => ({ ...b, params: { ...b.params } }));
+
+  const amp = chain.find(b => b.cat === 'AMP');
+  if (amp && rule.amp) { amp.model = rule.amp; amp.params = { ...rule.ampParams }; }
+
+  chain = chain.filter(b => b.cat !== 'OD' && b.cat !== 'DST');
+  if (rule.od) {
+    const ampIdx = chain.findIndex(b => b.cat === 'AMP');
+    chain.splice(ampIdx === -1 ? 0 : ampIdx, 0,
+      { cat: modelCategory(rule.od) ?? 'OD', model: rule.od, active: true, params: { ...rule.odParams } });
+  }
+
+  const cab = chain.find(b => b.cat === 'CAB');
+  if (cab && rule.cab) cab.model = rule.cab;
+
+  chain = chain.filter(b => b.cat !== 'NS');
+  if (rule.hasNS) chain.unshift({ cat: 'NS', model: 'Gate 1', active: true, params: { Threshold: rule.nsThreshold, Release: 38 } });
+
+  return { ...preset, pickup: normalizePickup(rule.pickup), chain: chain.map((b, i) => ({ ...b, id: `${preset.id}-${i}` })) };
 }
 
 function toneValidator(preset, genres) {
   if (!preset) return preset;
-  
+
   // Standardize genres to an array of lowercase strings
   let genreArray = [];
   if (Array.isArray(genres)) {
@@ -745,27 +795,7 @@ function toneValidator(preset, genres) {
   const ampBlock = preset.chain.find(b => b.cat === 'AMP');
 
   // Standardize pickup first
-  const mapPickupToSelector = (pk) => {
-    const p = String(pk).toLowerCase();
-    if (p.includes('bridge hb') || p.includes('position 1') || p.includes('full bridge')) {
-      return 'Position 1: Full Bridge';
-    }
-    if (p.includes('bridge split') || p.includes('4th') || p.includes('position 2') || p.includes('inner coils')) {
-      return 'Position 2: Inner Coils';
-    }
-    if (p.includes('mid') || p.includes('3rd') || p.includes('position 3') || p.includes('both humbuckers')) {
-      return 'Position 3: Both Humbuckers';
-    }
-    if (p.includes('neck split') || p.includes('2nd') || p.includes('position 4') || p.includes('outer coils')) {
-      return 'Position 4: Outer Coils';
-    }
-    if (p.includes('neck (1st)') || p.includes('1st') || p.includes('position 5') || p.includes('full neck')) {
-      return 'Position 5: Full Neck';
-    }
-    return pk;
-  };
-
-  preset.pickup = mapPickupToSelector(preset.pickup);
+  preset.pickup = normalizePickup(preset.pickup);
 
   if (isMetal) {
     if (ampBlock) {
@@ -946,7 +976,7 @@ function ToneWizardModal({ onClose, onSave }) {
                   <div className="flex flex-wrap gap-1.5 items-center">
                     {result.chain.map((b,i)=>{
                       const c=FX_COLOR[b.cat]??FX_COLOR.EQ;
-                      return <React.Fragment key={i}><div className="px-2 py-1 rounded-lg border text-center min-w-[52px]" style={{background:c.bg,borderColor:`${c.border}40`}}><div className="text-sm font-bold" style={{color:c.text}}>{FX_LABEL[b.cat]}</div><div className="text-[6px] mt-0.5" style={{color:c.text+'80'}}>{b.model}</div></div>{i<result.chain.length-1&&<ChevronRight size={8} className="text-gray-500"/>}</React.Fragment>;
+                      return <React.Fragment key={i}><div className="px-2 py-1 rounded-lg border text-center min-w-[52px]" style={{background:c.bg,borderColor:`${c.border}40`}}><div className="text-sm font-bold" style={{color:c.text}}>{FX_LABEL[b.cat]}</div><div className="text-[10px] mt-0.5" style={{color:c.text+'99'}}>{b.model}</div></div>{i<result.chain.length-1&&<ChevronRight size={8} className="text-gray-500"/>}</React.Fragment>;
                     })}
                   </div>
                 </div>
@@ -1091,7 +1121,10 @@ const ToneCloudFooter = React.memo(({
   useCab,
   setUseCab,
   saveAI,
-  setAiPreview
+  setAiPreview,
+  aiError,
+  setAiError,
+  aiNote
 }) => {
   return (
     <footer className="border-t border-[#2a2a2a] bg-[#111111] px-6 py-4 flex-shrink-0 space-y-4">
@@ -1110,9 +1143,9 @@ const ToneCloudFooter = React.memo(({
           </div>
           
           <div className="flex items-center gap-1 overflow-x-auto pb-2.5 border-b border-[#1e293b]">
-            {aiPreview.chain.map((b,i)=>{const c=FX_COLOR[b.cat]??FX_COLOR.EQ;return(
+            {aiPreview.chain.map((b,i)=>{const c=FX_COLOR[b.cat]??FX_COLOR.EQ;const on=b.active&&!(b.cat==='CAB'&&!useCab);return(
               <React.Fragment key={i}>
-                <div className="flex-shrink-0 min-w-[64px] text-center p-1.5 rounded-lg border" style={{background:c.bg,borderColor:`${c.border}40`}}>
+                <div className="flex-shrink-0 min-w-[64px] text-center p-1.5 rounded-lg border" style={{background:c.bg,borderColor:`${c.border}40`,opacity:on?1:0.35}}>
                   <div className="text-[10px] font-bold uppercase tracking-wider" style={{color:c.text}}>{FX_LABEL[b.cat]}</div>
                   <div className="text-xs font-mono mt-0.5" style={{color:c.text+'cc'}}>{b.model}</div>
                 </div>
@@ -1141,16 +1174,22 @@ const ToneCloudFooter = React.memo(({
                         ? 'bg-blue-600 text-white shadow-[0_0_8px_rgba(37,99,235,0.6)]' 
                         : 'text-gray-600 hover:text-gray-400'
                     }`} title={`Position ${pos}`}>
-                      P${pos}
+                      P{pos}
                     </div>
                   );
                 })}
               </div>
             </div>
           </div>
+          {aiNote && <div className="mt-2.5 text-[11px] text-gray-400">🔎 판단 근거: {aiNote}</div>}
         </div>
       ) : (
         <>
+          {aiError && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold text-red-400" style={{background:'#1a0808',borderColor:'#ef444450'}}>
+              <X size={13}/> {aiError}
+            </div>
+          )}
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 flex-shrink-0">
               <Sparkles size={13} className="text-blue-500"/>
@@ -1158,7 +1197,7 @@ const ToneCloudFooter = React.memo(({
             </div>
             <input className="flex-1 bg-[#161616] border border-[#383838] rounded-xl px-4 py-2.5 text-xs text-gray-300 placeholder-gray-500 focus:outline-none focus:border-blue-600 transition-colors"
               placeholder="아티스트 입력 (HigeDan / Vaundy / YOASOBI / Metallica…)"
-              value={aiQuery} onChange={e=>setAiQuery(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleGenerate()}/>
+              value={aiQuery} onChange={e=>{setAiQuery(e.target.value);setAiError(null);}} onKeyDown={e=>e.key==='Enter'&&!aiLoading&&handleGenerate()}/>
             <button onClick={handleGenerate} disabled={aiLoading||!aiQuery.trim()}
               className="flex items-center gap-2 bg-white hover:bg-blue-400 disabled:opacity-30 text-black px-4 py-2.5 rounded-xl text-xs font-black transition-colors flex-shrink-0">
               {aiLoading?<div className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin"/>:<Zap size={13} fill="currentColor"/>}
@@ -1193,6 +1232,8 @@ const ToneCloudFooter = React.memo(({
   return prev.aiPreview === next.aiPreview &&
          prev.aiQuery === next.aiQuery &&
          prev.aiLoading === next.aiLoading &&
+         prev.aiError === next.aiError &&
+         prev.aiNote === next.aiNote &&
          prev.useCab === next.useCab;
 });
 
@@ -1209,97 +1250,15 @@ function ToneCloudApp() {
   const [showBrowser,setShowBrowser]=useState(false);
   const [showExport,setShowExport]=useState(false);
   const [showWizard,setShowWizard]=useState(false);
+  const [aiError,setAiError]=useState(null);
+  const [aiNote,setAiNote]=useState(null);
 
-  useEffect(() => {
-    // 1. Sync active preset CAB block state with useCab
-    setPresets(prev => {
-      const activePreset = prev.find(p => p.id === activeId);
-      if (!activePreset) return prev;
-      
-      const cabBlock = activePreset.chain.find(b => b.cat === 'CAB');
-      const hasCab = !!cabBlock;
-      const cabActive = cabBlock?.active;
-      
-      if (useCab && hasCab && cabActive === true) return prev;
-      if (!useCab && (!hasCab || cabActive === false)) return prev;
-      
-      return prev.map(p => {
-        if (p.id !== activeId) return p;
-        if (useCab) {
-          if (hasCab) {
-            return {
-              ...p,
-              chain: p.chain.map(b => b.cat === 'CAB' ? { ...b, active: true } : b)
-            };
-          } else {
-            const ampIdx = p.chain.findIndex(b => b.cat === 'AMP');
-            const newCab = {
-              id: `${p.id}-cab-${Date.now()}`,
-              cat: 'CAB',
-              model: '4x12 V30',
-              active: true,
-              params: { HiCut: 50, LoCut: 40, Mix: 100 }
-            };
-            const newChain = [...p.chain];
-            if (ampIdx !== -1) {
-              newChain.splice(ampIdx + 1, 0, newCab);
-            } else {
-              newChain.push(newCab);
-            }
-            return { ...p, chain: newChain };
-          }
-        } else {
-          return {
-            ...p,
-            chain: p.chain.map(b => b.cat === 'CAB' ? { ...b, active: false } : b)
-          };
-        }
-      });
-    });
+  // 블록 RESET 용 원본 체인 (기본 프리셋 + 이후 저장되는 AI/위저드 프리셋)
+  const originalsRef = useRef(new Map(INITIAL_PRESETS.map(p => [p.id, p.chain])));
+  const rememberOriginal = p => originalsRef.current.set(p.id, p.chain.map(b => ({ ...b, params: { ...b.params } })));
 
-    // 2. Sync aiPreview CAB block state with useCab
-    if (aiPreview) {
-      const cabBlock = aiPreview.chain.find(b => b.cat === 'CAB');
-      const hasCab = !!cabBlock;
-      const cabActive = cabBlock?.active;
-      
-      const needsSync = (useCab && (!hasCab || cabActive === false)) || (!useCab && hasCab && cabActive === true);
-      if (needsSync) {
-        setAiPreview(prev => {
-          if (!prev) return prev;
-          if (useCab) {
-            if (hasCab) {
-              return {
-                ...prev,
-                chain: prev.chain.map(b => b.cat === 'CAB' ? { ...b, active: true } : b)
-              };
-            } else {
-              const ampIdx = prev.chain.findIndex(b => b.cat === 'AMP');
-              const newCab = {
-                id: `${prev.id}-cab-${Date.now()}`,
-                cat: 'CAB',
-                model: '4x12 V30',
-                active: true,
-                params: { HiCut: 50, LoCut: 40, Mix: 100 }
-              };
-              const newChain = [...prev.chain];
-              if (ampIdx !== -1) {
-                newChain.splice(ampIdx + 1, 0, newCab);
-              } else {
-                newChain.push(newCab);
-              }
-              return { ...prev, chain: newChain };
-            }
-          } else {
-            return {
-              ...prev,
-              chain: prev.chain.map(b => b.cat === 'CAB' ? { ...b, active: false } : b)
-            };
-          }
-        });
-      }
-    }
-  }, [useCab, activeId, aiPreview]);
+  // OUTPUT MODE 는 화면 표시만 바꾼다 — 프리셋 데이터는 건드리지 않음
+  const cabForcedOff = b => !useCab && b.cat === 'CAB';
 
   const active   = presets.find(p=>p.id===activeId)??presets[0];
   const selBlock = active?.chain.find(b=>b.id===selBlockId)??null;
@@ -1317,7 +1276,7 @@ function ToneCloudApp() {
     setPresets(prev=>prev.map(p=>p.id!==activeId?p:{...p,chain:p.chain.map(b=>b.id!==blockId?b:{...b,active:!b.active})}));
   }, [activeId]);
   const resetBlockParams = useCallback((blockId) => {
-    const src=INITIAL_PRESETS.find(p=>p.id===activeId)?.chain.find(b=>b.id===blockId);
+    const src=originalsRef.current.get(activeId)?.find(b=>b.id===blockId);
     if (!src) return;
     setPresets(prev=>prev.map(p=>p.id!==activeId?p:{...p,chain:p.chain.map(b=>b.id!==blockId?b:{...b,params:{...src.params}})}));
   }, [activeId]);
@@ -1326,28 +1285,44 @@ function ToneCloudApp() {
   const selDbEntry = selBlock?MODEL_DB[selBlock.cat]?.models.find(m=>m.name===selBlock.model||m.id===selBlock.model):null;
   const toggleTag  = tag => setActiveTags(prev=>prev.includes(tag)?prev.filter(t=>t!==tag):[...prev,tag]);
   const handleGenerate = async () => {
-    if (!aiQuery.trim()) return;
-    setAiLoading(true);
+    const query = aiQuery.trim();
+    if (!query) return;
+    setAiLoading(true); setAiError(null);
     try {
       // 1. MusicBrainz API로 아티스트 분석하여 진짜 장르/태그 가져오기
-      const res = await fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(aiQuery)}&fmt=json`);
-      const data = await res.json();
-      
-      let tags = [];
-      if (data.artists && data.artists.length > 0 && data.artists[0].tags) {
-        tags = data.artists[0].tags.map(t => t.name.toLowerCase());
+      const res = await fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(query)}&fmt=json&limit=5`);
+      if (!res.ok) {
+        setAiError(res.status === 503
+          ? 'MusicBrainz 요청이 너무 잦아요. 1~2초 뒤에 다시 시도해주세요.'
+          : `MusicBrainz 응답 오류(${res.status}). 잠시 후 다시 시도해주세요.`);
+        return;
       }
-      
-      // 검색창에 직접 장르를 쳤을 경우를 대비해 원본 검색어도 보조 태그로 추가
-      const combinedTags = [...tags, ...aiQuery.toLowerCase().split(/[\s,]+/)];
-      
+      const data = await res.json();
+
+      // 검색 점수 90 미만은 엉뚱한 아티스트일 가능성이 커서 쓰지 않음.
+      // 입력어 자체가 장르(예: metal, j-pop)면 이름이 정확히 같은 아티스트만 인정
+      // (안 그러면 'metal' 검색에 "Various Artists" 같은 결과가 걸림)
+      const lq = query.toLowerCase();
+      const queryIsGenre = window.GenreMapper.mapGenreToHardware([lq]).matched;
+      const nameIs = a => [a.name, a['sort-name'], ...(a.aliases || []).map(x => x.name)].some(n => n?.toLowerCase() === lq);
+      const artist = (data.artists || []).find(a => a.score >= 90 && (!queryIsGenre || nameIs(a))) ?? null;
+      // 득표수(count) 높은 태그가 그 아티스트의 대표 장르
+      const tags = (artist?.tags || []).slice().sort((a, b) => b.count - a.count).map(t => t.name.toLowerCase());
+
+      // 검색창에 직접 장르를 쳤을 경우를 대비해 원본 검색어도 보조 태그로 추가 (우선순위는 가장 낮음)
+      const combinedTags = [...tags, lq, ...lq.split(/[\s,]+/)];
+
       // 2. genreMapper 룰셋 매핑
-      const { rule, matched } = window.GenreMapper.mapGenreToHardware(combinedTags);
+      const { rule, matched, matchedTag } = window.GenreMapper.mapGenreToHardware(combinedTags);
+      if (!artist && !matched) {
+        setAiError(`'${query}' 아티스트나 장르를 찾지 못했어요. 영문 표기(예: ONE OK ROCK) 또는 장르(예: metal, j-pop)로 입력해보세요.`);
+        return;
+      }
       const params = window.GenreMapper.ruleToWizardParams(rule);
 
       // 3. 실제 파라미터를 기반으로 AI 톤 자동 생성
-            const preset = wizardGenerate({
-        artist: data.artists?.[0]?.name || aiQuery,
+      const base = wizardGenerate({
+        artist: artist?.name || query,
         song: matched ? `Style: ${rule.label}` : 'AI Generated (Fallback)',
         genres: params.genres,
         gainIdx: params.gainIdx,
@@ -1356,33 +1331,50 @@ function ToneCloudApp() {
         fxOn: params.fxOn,
         delayModel: null,
         reverbModel: null,
-        useCab
+        useCab: true // CAB 은 항상 넣어두고, 앰프 리턴 모드에선 화면에서 꺼진 것으로 표시
       });
-      preset.isAI = true;
-      preset.id = `ai-${Date.now()}`;
-      
-      const validatedPreset = toneValidator(preset, combinedTags);
-      setAiPreview(validatedPreset);
+
+      // 3. 룰에 정의된 장비를 최종값으로 반영 (toneValidator 로 다시 덮어쓰지 않음)
+      const preset = applyRuleHardware({ ...base, id: `ai-${Date.now()}`, isAI: true }, rule);
+      setAiNote(!artist
+        ? `아티스트를 찾지 못해 입력어 "${matchedTag}"로 장르 추정 → ${rule.label}`
+        : matched
+          ? `${artist.name} · MusicBrainz 태그 "${matchedTag}" → ${rule.label}`
+          : `${artist.name} · 장르 태그 없음 → 기본 톤(${rule.label})`);
+      setAiPreview(preset);
     } catch (e) {
       console.error(e);
-      alert('아티스트 분석 중 오류가 발생했습니다.');
+      setAiError('네트워크 오류로 MusicBrainz에 연결하지 못했어요. 인터넷 연결을 확인해주세요.');
     } finally {
       setAiLoading(false);
     }
   };
   const saveAI = () => {
     if (!aiPreview) return;
+    rememberOriginal(aiPreview);
     setPresets(prev=>[aiPreview,...prev]);
     setActiveId(aiPreview.id); setSelBlockId(null); setAiPreview(null); setAiQuery('');
   };
+  const addCabBlock = () => {
+    setPresets(prev => prev.map(p => {
+      if (p.id !== activeId || p.chain.some(b => b.cat === 'CAB')) return p;
+      const ampIdx = p.chain.findIndex(b => b.cat === 'AMP');
+      const cab = { id: `${p.id}-cab-${Date.now()}`, cat: 'CAB', model: '4x12 V30', active: true, params: { HiCut: 50, LoCut: 40, Mix: 100 } };
+      const chain = [...p.chain];
+      chain.splice(ampIdx === -1 ? chain.length : ampIdx + 1, 0, cab);
+      return { ...p, chain };
+    }));
+  };
+  const hasCab = active.chain.some(b => b.cat === 'CAB');
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-gray-200 flex flex-col" style={{fontFamily:"'Courier New',Courier,monospace"}}>
       {showBrowser && <ModelBrowser onClose={()=>setShowBrowser(false)}/>}
       {showExport  && <ExportModal presets={presets} active={active} onClose={()=>setShowExport(false)}/>}
-      {showWizard  && <ToneWizardModal onClose={()=>setShowWizard(false)} onSave={(preset)=>{setPresets(prev=>[preset,...prev]);setActiveId(preset.id);setSelBlockId(null);}}/>}
+      {showWizard  && <ToneWizardModal onClose={()=>setShowWizard(false)} onSave={(preset)=>{rememberOriginal(preset);setPresets(prev=>[preset,...prev]);setActiveId(preset.id);setSelBlockId(null);}}/>}
 
       <SlideInPanel block={selBlock} dbEntry={selDbEntry} color={selColor??{border:'#3b82f6',bg:'#0a1628',text:'#60a5fa'}}
+        note={selBlock&&cabForcedOff(selBlock)?'앰프 리턴 모드라 이 CAB은 꺼진 것으로 표시돼요. 실제 기기에서도 CAB을 OFF 하세요.':null}
         onClose={()=>setSelBlockId(null)} onParamChange={(key,val)=>updateParam(selBlock.id,key,val)}
         onToggleActive={()=>toggleBlockActive(selBlock.id)} onReset={()=>resetBlockParams(selBlock.id)}/>
 
@@ -1438,7 +1430,7 @@ function ToneCloudApp() {
                 <ChevronRight size={10} className="text-gray-500"/>
               </div>
               {active.chain.map(block=>(
-                <ChainBlock key={block.id} block={block} isSelected={selBlockId===block.id}
+                <ChainBlock key={block.id} block={block} isSelected={selBlockId===block.id} forcedOff={cabForcedOff(block)}
                   onClick={()=>setSelBlockId(selBlockId===block.id?null:block.id)}/>
               ))}
               <div className="min-w-[58px] p-2 rounded-xl border border-[#383838] bg-[#161616] text-center flex-shrink-0">
@@ -1446,6 +1438,17 @@ function ToneCloudApp() {
                 <div className="text-sm text-gray-400 tracking-widest">OUTPUT</div>
               </div>
             </div>
+            {useCab && !hasCab && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border bg-blue-900/15 border-blue-500/25 text-blue-300">
+                <span>ℹ️ 이 프리셋에는 CAB 블록이 없어요. 헤드폰·인터페이스로 들으면 소리가 거칠 수 있어요.</span>
+                <button onClick={addCabBlock} className="ml-auto px-2.5 py-1 rounded-md border border-blue-500/50 text-blue-300 hover:bg-blue-600 hover:text-white transition-colors">+ CAB 추가</button>
+              </div>
+            )}
+            {!useCab && hasCab && (
+              <div className="mt-2.5 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border bg-orange-900/15 border-orange-500/30 text-orange-300">
+                ⚠️ 앰프 리턴 모드: CAB 블록은 꺼진 것으로 표시돼요. 실제 GP-200JR에서도 CAB을 OFF 하세요.
+              </div>
+            )}
           </div>
 
           <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 px-6">
@@ -1460,7 +1463,7 @@ function ToneCloudApp() {
               <div className="flex flex-wrap justify-center gap-1.5">
                 {active.chain.map(b=>{const c=FX_COLOR[b.cat]??FX_COLOR.EQ;return(
                   <button key={b.id} onClick={()=>setSelBlockId(b.id)} className="px-2.5 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider transition-all hover:scale-105"
-                    style={{background:c.bg,borderColor:`${c.border}40`,color:b.active?c.text:c.text+'40'}}>{b.model}</button>
+                    style={{background:c.bg,borderColor:`${c.border}40`,color:b.active&&!cabForcedOff(b)?c.text:c.text+'40'}}>{b.model}</button>
                 );})}
               </div>
             </div>
@@ -1479,6 +1482,9 @@ function ToneCloudApp() {
         setUseCab={setUseCab}
         saveAI={saveAI}
         setAiPreview={setAiPreview}
+        aiError={aiError}
+        setAiError={setAiError}
+        aiNote={aiNote}
       />
     </div>
   );

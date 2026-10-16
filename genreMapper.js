@@ -57,7 +57,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'metalcore',
     label: 'Metalcore / Djent / Thrash',
-    match: /metalcore|djent|thrash metal|groove metal|prog metal/,
+    match: /metalcore|djent|thrash metal|groove metal|prog metal|nu metal|alternative metal|industrial metal/,
     amp: 'Mess DualV',
     ampParams: { Gain:85, Bass:55, Mid:38, Treble:65, Vol:72, Presence:70 },
     cab: '4x12 Mesa',
@@ -74,7 +74,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'heavy_metal',
     label: 'Heavy Metal / Power Metal / Speed Metal',
-    match: /heavy metal|power metal|speed metal|symphonic metal|doom metal/,
+    match: /heavy metal|power metal|speed metal|symphonic metal|doom metal|^metal$/,
     amp: 'EV 51',
     ampParams: { Gain:80, Bass:52, Mid:40, Treble:62, Vol:70, Presence:68 },
     cab: '4x12 V30',
@@ -172,23 +172,6 @@ const GP200JR_GENRE_RULES = [
     genres: ['J-Rock'],
   },
 
-  // ── Classic / Garage Rock ─────────────────────────────────────────────────
-  {
-    id: 'rock',
-    label: 'Rock / Classic Rock / Garage Rock',
-    match: /\brock\b|classic rock|garage rock|stoner rock|psychedelic rock/,
-    amp: 'UK 45',
-    ampParams: { Gain:42, Bass:50, Mid:58, Treble:60, Vol:70, Presence:55 },
-    cab: '4x12 GRN',
-    od: 'Blues Master',
-    odParams: { Drive:38, Tone:50, Level:64 },
-    hasNS: false, nsThreshold: 25,
-    hasChorus: false, hasDelay: false,
-    pickup: 'Mid (3rd)',
-    gainIdx: 2, brightIdx: 2, spaceIdx: 2,
-    genres: ['J-Rock'],
-  },
-
   // ── R&B / Funk (우선순위 변경: Blues보다 위로 이동) ─────────────────────
   {
     id: 'rnb_funk',
@@ -257,23 +240,6 @@ const GP200JR_GENRE_RULES = [
     genres: ['Jazz'],
   },
 
-  // ── Pop ───────────────────────────────────────────────────────────────────
-  {
-    id: 'pop',
-    label: 'Pop / Indie Pop / Dance Pop',
-    match: /\bpop\b|indie pop|dream pop|dance pop|synth pop|electropop|kpop/, // kpop 추가
-    amp: 'Foxy 30N',
-    ampParams: { Gain:15, Bass:50, Mid:55, Treble:68, Vol:75, Presence:50 },
-    cab: null,
-    od: null,
-    odParams: null,
-    hasNS: false, nsThreshold: 15,
-    hasChorus: true, hasDelay: true,
-    pickup: 'Neck Split (2nd)',
-    gainIdx: 1, brightIdx: 3, spaceIdx: 3,
-    genres: ['Pop'],
-  },
-
   // ── Country / Folk ────────────────────────────────────────────────────────
   {
     id: 'country_folk',
@@ -289,6 +255,41 @@ const GP200JR_GENRE_RULES = [
     pickup: 'Neck (1st)',
     gainIdx: 0, brightIdx: 3, spaceIdx: 2, // Bright 2 -> 3으로 상향 (텔레캐스터 트왱 사운드 반영)
     genres: ['Country'],
+  },
+
+  // ── Classic / Garage Rock ─────────────────────────────────────────────────
+  // 범용 'rock' 은 "blues rock", "folk rock" 같은 구체 장르까지 잡아버리므로 뒤쪽에 둠
+  {
+    id: 'rock',
+    label: 'Rock / Classic Rock / Garage Rock',
+    match: /\brock\b|classic rock|garage rock|stoner rock|psychedelic rock/,
+    amp: 'UK 45',
+    ampParams: { Gain:42, Bass:50, Mid:58, Treble:60, Vol:70, Presence:55 },
+    cab: '4x12 GRN',
+    od: 'Blues Master',
+    odParams: { Drive:38, Tone:50, Level:64 },
+    hasNS: false, nsThreshold: 25,
+    hasChorus: false, hasDelay: false,
+    pickup: 'Mid (3rd)',
+    gainIdx: 2, brightIdx: 2, spaceIdx: 2,
+    genres: ['J-Rock'],
+  },
+
+  // ── Pop ───────────────────────────────────────────────────────────────────
+  {
+    id: 'pop',
+    label: 'Pop / Indie Pop / Dance Pop',
+    match: /\bpop\b|indie pop|dream pop|dance pop|synth pop|electropop|kpop/, // kpop 추가
+    amp: 'Foxy 30N',
+    ampParams: { Gain:15, Bass:50, Mid:55, Treble:68, Vol:75, Presence:50 },
+    cab: null,
+    od: null,
+    odParams: null,
+    hasNS: false, nsThreshold: 15,
+    hasChorus: true, hasDelay: true,
+    pickup: 'Neck Split (2nd)',
+    gainIdx: 1, brightIdx: 3, spaceIdx: 3,
+    genres: ['Pop'],
   },
 ];
 
@@ -319,19 +320,21 @@ const FALLBACK_RULE = {
 
 /**
  * MusicBrainz 장르 태그 배열 → GP-200JR 하드웨어 룰 매핑
+ *
+ * 태그 순서가 곧 우선순위다 (호출 측에서 MusicBrainz 득표수 내림차순으로 정렬해 넘길 것).
+ * 앞쪽 태그부터 보면서, 그 태그에 맞는 룰 중 목록상 가장 위(구체적인) 룰을 고른다.
+ * 예) YOASOBI [pop, j-pop, j-rock] → 대표 태그 'pop' 기준으로 판단 (뒤쪽 j-rock 에 끌려가지 않음)
  */
 function mapGenreToHardware(tags) {
   if (!tags || tags.length === 0) {
     return { rule: FALLBACK_RULE, matched: false, matchedTag: null };
   }
 
-  const tagStr = tags.join(' ').toLowerCase();
-
-  for (const rule of GP200JR_GENRE_RULES) {
-    if (rule.match.test(tagStr)) {
-      const matchedTag = tags.find(t => rule.match.test(t.toLowerCase())) ?? null;
-      return { rule, matched: true, matchedTag };
-    }
+  for (const tag of tags) {
+    const t = String(tag).toLowerCase().trim();
+    if (!t) continue;
+    const rule = GP200JR_GENRE_RULES.find(r => r.match.test(t));
+    if (rule) return { rule, matched: true, matchedTag: tag };
   }
 
   return { rule: FALLBACK_RULE, matched: false, matchedTag: null };
