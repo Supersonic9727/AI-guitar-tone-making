@@ -1347,7 +1347,7 @@ function ToneWizardModal({ onClose, onSave, useCab }) {
 }
 
 
-const SYNC_LABEL = { off:['#6b7280','로컬 저장'], syncing:['#eab308','동기화 중…'], synced:['#22c55e','동기화됨'], error:['#ef4444','동기화 오류'] };
+const SYNC_LABEL = { off:['#6b7280','로컬 저장'], syncing:['#eab308','동기화 중…'], synced:['#22c55e','동기화됨'], error:['#ef4444','동기화 오류'], offline:['#9ca3af','오프라인 · 나중에 동기화'] };
 // ── YouTube 레퍼런스: 원곡 기타 톤을 바로 찾아 듣고 비교 ──
 // AI/위저드 프리셋의 song 칸은 실제 곡명이 아니라 "Style: …" 같은 설명이라 검색어에서 뺌
 const hasRealArtist = a => !!a && a !== 'Custom';
@@ -1734,35 +1734,95 @@ const SYNC_ERRORS = {
   'auth/network-request-failed': '네트워크 오류로 로그인하지 못했어요.',
   'permission-denied': '클라우드 접근 권한이 없어요. Firestore 규칙을 확인해주세요.',
   'unavailable': '클라우드에 연결할 수 없어요. 잠시 후 자동으로 다시 시도해요.',
+  'aborted': '다른 기기와 동시에 저장하느라 잠시 실패했어요. 자동으로 다시 시도해요.',
+  'failed-precondition': '다른 기기와 동시에 저장하느라 잠시 실패했어요. 자동으로 다시 시도해요.',
 };
 const syncErrorMessage = e => SYNC_ERRORS[e?.code] ?? `동기화 오류: ${e?.message ?? e}`;
 
-// 로그인 직후 1회: 클라우드 프리셋 + 이 기기에만 있는 프리셋을 합침
-// - 손대지 않은 기본 프리셋은 "이 기기 데이터"로 치지 않음 (새 기기에서 로그인해도 기본값이 섞여 들어가지 않게)
-// - 같은 내용은 건너뛰고, id 만 겹치면 새 id 부여
-function mergeLocalIntoCloud(cloudPresets, localPresets) {
-  const pristine = new Set(INITIAL_PRESETS.map(presetSignature));
-  const sigs = new Set(cloudPresets.map(presetSignature));
-  const ids = new Set(cloudPresets.map(p => p.id));
-  const added = [];
-  for (const p of localPresets) {
-    const sig = presetSignature(p);
-    if (sigs.has(sig) || (pristine.has(sig) && INITIAL_PRESETS.some(d => d.id === p.id))) continue;
-    let preset = p;
-    if (ids.has(p.id)) {
-      // 같은 프리셋을 두 기기에서 각각 고친 경우 → 둘 다 남기되 이 기기 쪽에 표시
-      const id = `${p.id}-dev-${Date.now()}-${added.length}`;
-      preset = { ...p, id, name: `${p.name} (이 기기)`, chain: p.chain.map((b, i) => ({ ...b, id: `${id}-${i}` })) };
+// ── 동기화 병합: 프리셋 단위 ─────────────────────────────────────────────
+// 상태 = { presets, originals, deleted }
+//  · 프리셋마다 updatedAt(이 기기에서 마지막으로 고친 시각, ms). 같은 프리셋이 양쪽에 있으면 더 최근 것을 남김
+//    → PC 에서 A, 폰에서 B 를 동시에 고쳐도 둘 다 남음 (예전엔 목록 전체를 덮어써서 한쪽이 사라졌음)
+//  · deleted = { 프리셋id: 삭제 시각 }. 삭제가 더 나중이면 다른 기기에 남아 있던 프리셋도 지움 (되살아나지 않게)
+const TOMBSTONE_TTL = 1000 * 60 * 60 * 24 * 120;   // 120일 지난 삭제 기록은 정리
+const presetStamp = p => p.updatedAt || 0;
+const emptySyncState = () => ({ presets: [], originals: {}, deleted: {} });
+// legacyCopies: 옛 버전 충돌 복사본은 클라우드에 쓰는 병합에서만 만듦 (화면 반영 때 또 만들면 중복)
+function mergeSyncStates(remote, local, now = Date.now(), { legacyCopies: makeCopies = true } = {}) {
+  const deleted = {};
+  for (const src of [remote.deleted, local.deleted])
+    for (const [id, t] of Object.entries(src || {})) if (now - t < TOMBSTONE_TTL) deleted[id] = Math.max(deleted[id] || 0, t);
+  const R = new Map(remote.presets.map(p => [p.id, p])), L = new Map(local.presets.map(p => [p.id, p]));
+  // 손대지 않은 기본 프리셋 — 새 기기에서 로그인해도 클라우드에 섞여 들어가지 않게
+  const pristineSigs = new Set(INITIAL_PRESETS.map(presetSignature));
+  const isPristine = p => !presetStamp(p) && INITIAL_PRESETS.some(d => d.id === p.id) && pristineSigs.has(presetSignature(p));
+  const winners = new Map(), from = {}, legacyCopies = [];
+  for (const id of new Set([...R.keys(), ...L.keys()])) {
+    const r = R.get(id), l = L.get(id);
+    let w;
+    if (r && l) {
+      if (presetStamp(l) > presetStamp(r)) { w = l; from[id] = 'local'; }
+      else {
+        w = r; from[id] = 'remote';
+        // 수정 시각이 생기기 전(옛 버전)에 두 기기에서 따로 고친 경우 → 이 기기 쪽도 복사본으로 남김
+        if (makeCopies && !presetStamp(l) && !presetStamp(r) && presetSignature(l) !== presetSignature(r) && !isPristine(l)) legacyCopies.push(l);
+      }
+    } else if (r) { w = r; from[id] = 'remote'; }
+    else {
+      if (remote.presets.length && isPristine(l)) continue;
+      w = l; from[id] = 'local';
     }
-    sigs.add(sig); ids.add(preset.id); added.push(preset);
+    if (deleted[id] && deleted[id] >= presetStamp(w)) continue;   // 삭제가 더 나중
+    delete deleted[id];   // 삭제 뒤에 다시 고쳐졌거나 되돌리기로 살아남 → 삭제 기록은 필요 없음
+    winners.set(id, w);
   }
-  return { presets: [...cloudPresets, ...added], added };
+  // 순서: 클라우드 순서 기준, 이 기기에만 있는 프리셋은 이 기기에서의 앞 이웃 바로 뒤에
+  const order = remote.presets.map(p => p.id).filter(id => winners.has(id));
+  local.presets.forEach((p, i) => {
+    if (!winners.has(p.id) || order.includes(p.id)) return;
+    const prev = local.presets.slice(0, i).reverse().find(q => order.includes(q.id));
+    order.splice(prev ? order.indexOf(prev.id) + 1 : 0, 0, p.id);
+  });
+  const presets = order.map(id => winners.get(id));
+  const originals = {};
+  for (const p of presets) {
+    const src = from[p.id] === 'remote' ? (remote.originals?.[p.id] ?? local.originals?.[p.id]) : (local.originals?.[p.id] ?? remote.originals?.[p.id]);
+    if (Array.isArray(src)) originals[p.id] = src;
+  }
+  for (const l of legacyCopies) {
+    const id = `${l.id}-dev-${now}-${presets.length}`;
+    const copy = { ...l, id, name: `${l.name} (이 기기)`, updatedAt: now, chain: l.chain.map((b, i) => ({ ...b, id: `${id}-${i}` })) };
+    presets.splice(presets.findIndex(p => p.id === l.id) + 1, 0, copy);
+    originals[id] = cloneChain(copy.chain);
+  }
+  const addedFromLocal = presets.filter(p => !R.has(p.id)).length;
+  return { presets, originals, deleted, addedFromLocal };
+}
+// 두 상태가 같은지 빠르게 비교 (프리셋 id·순서·수정 시각 + 삭제 기록)
+const syncKey = s => JSON.stringify([s.presets.map(p => [p.id, presetStamp(p)]), Object.keys(s.deleted || {}).sort()]);
+// 바뀐 프리셋에 수정 시각을 찍고, 사라진 프리셋은 삭제 기록에 남김 (deleted 객체를 직접 고침)
+function stampPresetChanges(prev, next, deleted, now = Date.now()) {
+  const prevById = new Map(prev.map(p => [p.id, p]));
+  const nextIds = new Set(next.map(p => p.id));
+  for (const p of prev) if (!nextIds.has(p.id)) deleted[p.id] = now;
+  return next.map(p => {
+    if (prevById.get(p.id) === p) return p;
+    delete deleted[p.id];   // 되돌리기로 다시 생긴 프리셋
+    return { ...p, updatedAt: now };
+  });
 }
 
 function ToneCloudApp() {
   // 저장된 프리셋을 불러오면서 옛 형식은 실제 기기 파라미터로 변환 (한 번만)
   const saved = useMemo(() => { const s = loadSaved(); return s ? { ...s, ...normalizeSavedState(s) } : null; }, []);
-  const [presets,setPresets]=useState(()=>saved?.presets ?? INITIAL_PRESETS);
+  const [presets,setPresetsRaw]=useState(()=>saved?.presets ?? INITIAL_PRESETS);
+  // 삭제 기록 (동기화용) — 다른 기기에서 지운 프리셋이 되살아나지 않게
+  const deletedRef = useRef(saved?.deleted ?? {});
+  // 앱 안에서 프리셋을 바꾸면 자동으로 수정 시각·삭제 기록을 남김 (클라우드에서 받은 변경은 setPresetsRaw 로 그대로)
+  const setPresets = useCallback(update => setPresetsRaw(prev => {
+    const next = typeof update === 'function' ? update(prev) : update;
+    return next === prev ? prev : stampPresetChanges(prev, next, deletedRef.current);
+  }), []);
   const [activeId,setActiveId]=useState(()=>saved?.activeId ?? '1');
   const [selBlockId,setSelBlockId]=useState(null);
   const [search,setSearch]=useState('');
@@ -1800,7 +1860,7 @@ function ToneCloudApp() {
   useEffect(() => {
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, presets, activeId, useCab, originals: originalsFor(presets) }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, presets, activeId, useCab, originals: originalsFor(presets), deleted: deletedRef.current }));
       } catch (e) { console.warn('자동 저장 실패', e); }
     }, 300);
     return () => clearTimeout(t);
@@ -1814,15 +1874,41 @@ function ToneCloudApp() {
   const cloudReadyRef = useRef(false);    // 로그인 직후 합치기가 끝났는지
   const remoteApplyRef = useRef(false);   // 다른 기기 변경을 반영한 직후엔 다시 업로드하지 않음
 
-  const uploadState = (uid, list) => getFirebase().db.collection('users').doc(uid).set({
-    data: JSON.stringify({ version: 1, presets: list, originals: originalsFor(list) }),
-    deviceId: DEVICE_ID,
-    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  const cloudRef = () => getFirebase().db.collection('users').doc(user.uid);
+  const localSyncState = () => ({ presets: presetsRef.current, originals: originalsFor(presetsRef.current), deleted: deletedRef.current });
+  // 클라우드 문서 → 상태 (옛 형식 프리셋은 실제 기기 파라미터로 변환, 옛 문서엔 삭제 기록이 없음)
+  const parseCloud = snap => {
+    if (!snap.exists) return null;
+    let d = null; try { d = JSON.parse(snap.data().data); } catch {}
+    if (!Array.isArray(d?.presets) || !d.presets.every(isValidPreset)) return null;
+    return { ...normalizeSavedState({ presets: d.presets, originals: d.originals }), deleted: d.deleted && typeof d.deleted === 'object' ? d.deleted : {} };
+  };
+  // 클라우드 최신본을 읽고 → 이 기기 상태와 합쳐서 → 쓰기를 한 번에 (트랜잭션: 그 사이 다른 기기가 쓰면 자동으로 다시 시도)
+  const syncWithCloud = () => getFirebase().db.runTransaction(async tx => {
+    const ref = cloudRef();
+    const remote = parseCloud(await tx.get(ref)) ?? emptySyncState();
+    const merged = mergeSyncStates(remote, localSyncState());
+    tx.set(ref, {
+      data: JSON.stringify({ version: 2, presets: merged.presets, originals: merged.originals, deleted: merged.deleted }),
+      deviceId: DEVICE_ID,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    return { merged, remote };
   });
-  const applyCloudPresets = list => {
-    remoteApplyRef.current = true;
-    setPresets(list);
-    setActiveId(id => list.some(p => p.id === id) ? id : list[0].id);
+  // 클라우드 상태를 화면에 반영. 그 사이 이 기기에서 더 고친 내용이 있으면 한 번 더 합쳐서 살림
+  // 반환값 true = 이 기기에 클라우드에 없는 변경이 남아 있음 → 다시 올려야 함
+  const applyMerged = cloudState => {
+    const local = localSyncState(), localKey = syncKey(local);
+    const latest = mergeSyncStates(cloudState, local, Date.now(), { legacyCopies: false });
+    deletedRef.current = latest.deleted;
+    adoptOriginals(latest.originals);
+    if (syncKey(latest) !== localKey) {
+      const list = latest.presets.length ? latest.presets : INITIAL_PRESETS;   // 전부 지워진 경우 앱이 비지 않게
+      remoteApplyRef.current = true;   // 반영으로 생긴 변경은 다시 올리지 않음
+      setPresetsRaw(list);
+      setActiveId(id => list.some(p => p.id === id) ? id : list[0].id);
+    }
+    return syncKey(latest) !== syncKey(cloudState);
   };
 
   useEffect(() => {
@@ -1839,59 +1925,65 @@ function ToneCloudApp() {
     setSyncStatus('syncing');
     (async () => {
       try {
-        const snap = await ref.get();
+        // 로그인 직후: 클라우드와 이 기기 프리셋을 프리셋 단위로 합침
+        const { merged, remote } = await syncWithCloud();
         if (cancelled) return;
-        let cloud = null;
-        try { cloud = snap.exists ? JSON.parse(snap.data().data) : null; } catch {}
-        const cloudPresets = Array.isArray(cloud?.presets) && cloud.presets.length && cloud.presets.every(isValidPreset) ? cloud.presets : null;
-        const local = presetsRef.current;
-        let next = local, added = [];
-        if (cloudPresets) {
-          // 클라우드에 옛 형식으로 저장돼 있어도 실제 기기 파라미터로 변환해서 받음
-          const norm = normalizeSavedState({ presets: cloudPresets, originals: cloud.originals });
-          adoptOriginals(norm.originals);
-          ({ presets: next, added } = mergeLocalIntoCloud(norm.presets, local));
-          added.forEach(p => { if (!originalsRef.current.has(p.id)) rememberOriginal(p); });
-        }
-        if (!cloudPresets || added.length) await uploadState(user.uid, next);
-        if (cancelled) return;
-        if (next !== local) applyCloudPresets(next);
+        const pending = applyMerged(merged);
         cloudReadyRef.current = true;
         setSyncStatus('synced');
-        showToast(!cloudPresets ? '☁️ 이 기기의 프리셋을 클라우드에 저장했어요'
-          : added.length ? `☁️ 클라우드와 합쳤어요 (이 기기에만 있던 ${added.length}개 추가)` : '☁️ 클라우드 프리셋을 불러왔어요');
+        if (pending) requestSyncRef.current();
+        showToast(!remote.presets.length ? '☁️ 이 기기의 프리셋을 클라우드에 저장했어요'
+          : merged.addedFromLocal ? `☁️ 클라우드와 합쳤어요 (이 기기에만 있던 ${merged.addedFromLocal}개 추가)` : '☁️ 클라우드 프리셋을 불러왔어요');
 
-        // 다른 기기에서 바뀐 내용을 실시간으로 반영
+        // 다른 기기에서 바뀐 내용을 실시간으로 받아서 "합침" (덮어쓰지 않음)
         unsub = ref.onSnapshot(s => {
           if (s.metadata.hasPendingWrites || !s.exists) return;
-          const d = s.data();
-          if (d.deviceId === DEVICE_ID) return;   // 내가 쓴 변경
-          let parsed = null; try { parsed = JSON.parse(d.data); } catch {}
-          if (!Array.isArray(parsed?.presets) || !parsed.presets.length || !parsed.presets.every(isValidPreset)) return;
-          const norm = normalizeSavedState(parsed);
-          adoptOriginals(norm.originals);
-          applyCloudPresets(norm.presets);
-          setSyncStatus('synced');
+          if (s.data().deviceId === DEVICE_ID) return;   // 내가 쓴 변경
+          const remoteNow = parseCloud(s);
+          if (!remoteNow) return;
+          // 이 기기에 아직 안 올린 변경이 있었으면 합친 결과를 다시 올림
+          if (applyMerged(remoteNow)) requestSyncRef.current(); else setSyncStatus('synced');
         }, err => { setSyncStatus('error'); showToast(`⚠️ ${syncErrorMessage(err)}`); });
       } catch (e) {
-        if (!cancelled) { setSyncStatus('error'); showToast(`⚠️ ${syncErrorMessage(e)}`); }
+        if (!cancelled) { setSyncStatus(navigator.onLine === false ? 'offline' : 'error'); showToast(`⚠️ ${syncErrorMessage(e)}`); }
       }
     })();
-    return () => { cancelled = true; unsub?.(); };
+    return () => { cancelled = true; unsub?.(); clearTimeout(syncTimer.current); };
   }, [user?.uid]);
 
-  // 이 기기에서 바꾼 내용은 0.8초 뒤 클라우드에 업로드
+  // 이 기기에서 바꾼 내용은 0.8초 뒤 클라우드와 합쳐서 올림. 실패하면(오프라인 등) 15초 뒤·인터넷 연결 시 다시 시도
+  const syncTimer = useRef(null);
+  const syncFailed = useRef(false);
+  const requestSync = (delay = 800) => {
+    if (!user || !cloudReadyRef.current) return;
+    setSyncStatus('syncing');
+    clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(async () => {
+      try {
+        const { merged } = await syncWithCloud();
+        syncFailed.current = false;
+        if (applyMerged(merged)) requestSyncRef.current();   // 올리는 사이 더 고친 내용 → 한 번 더
+        else setSyncStatus('synced');
+      } catch (e) {
+        const offline = navigator.onLine === false;
+        setSyncStatus(offline ? 'offline' : 'error');
+        if (!syncFailed.current) showToast(offline ? '📴 오프라인이에요. 인터넷이 연결되면 자동으로 동기화해요' : `⚠️ ${syncErrorMessage(e)}`);
+        syncFailed.current = true;
+        syncTimer.current = setTimeout(() => requestSync(0), 15000);
+      }
+    }, delay);
+  };
+  const requestSyncRef = useRef(requestSync); requestSyncRef.current = requestSync;
   useEffect(() => {
     if (!user || !cloudReadyRef.current) return;
     if (remoteApplyRef.current) { remoteApplyRef.current = false; return; }
-    setSyncStatus('syncing');
-    const t = setTimeout(() => {
-      uploadState(user.uid, presets)
-        .then(() => setSyncStatus('synced'))
-        .catch(e => { setSyncStatus('error'); showToast(`⚠️ ${syncErrorMessage(e)}`); });
-    }, 800);
-    return () => clearTimeout(t);
+    requestSync();
   }, [presets, user]);
+  useEffect(() => {
+    const onOnline = () => requestSyncRef.current(0);
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
 
   const signIn = async () => {
     const fb = getFirebase();
