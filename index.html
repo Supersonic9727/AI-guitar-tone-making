@@ -47,6 +47,17 @@ const { useState, useMemo, useRef, useEffect, useCallback } = React;
 // 손가락 터치가 주 입력인 기기(폰·태블릿)인지 — 노브 값 직접 입력을 더블클릭 대신 탭으로 열기 위해 사용
 const IS_TOUCH = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 
+// Esc 키로 패널·모달 닫기 (enabled 가 false 면 무시)
+function useEscape(onClose, enabled = true) {
+  const ref = useRef(onClose); ref.current = onClose;
+  useEffect(() => {
+    if (!enabled) return;
+    const onKey = e => e.key === 'Escape' && ref.current();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [enabled]);
+}
+
 /* ── Icon helpers (React.createElement, no JSX) ── */
 const CE = React.createElement;
 const _svg = (kids, extra={}) => ({size=16, className=''}) =>
@@ -564,6 +575,7 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', 
 function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleActive, onReset, note }) {
   const isOpen = !!block;
   const spec = block ? modelSpec(block.cat, block.model) : null;
+  useEscape(onClose, isOpen);
   return (
     <>
       <div onClick={onClose} className="fixed inset-0 z-30 transition-opacity duration-300"
@@ -615,8 +627,9 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
                     <div className="grid grid-cols-3 gap-x-4 gap-y-6">
                       {knobs.map(({ key, val, p }) => {
                         const min = p?.min ?? 0, max = p?.max ?? 100, step = knobStep(min, max);
+                        // key 에 블록 id 포함: 다른 블록으로 바꾸면 노브를 새로 만들어 이전 블록의 onChange 가 남지 않게
                         return (
-                          <div key={key} className="flex flex-col items-center gap-1">
+                          <div key={`${block.id}-${key}`} className="flex flex-col items-center gap-1">
                             <InteractiveKnob label={key} value={val} color={color.border} size="lg" min={min} max={max} unit={p?.unit ?? ''} offAtZero={!!p?.offAtZero} onChange={v=>onParamChange(key,v)}/>
                             <div className="flex items-center gap-1 mt-0.5">
                               <button onClick={()=>onParamChange(key,Math.max(min,val-step))} className="w-5 h-5 flex items-center justify-center rounded border border-[#1e1e1e] text-gray-400 hover:text-gray-300 transition-colors"><Minus size={9}/></button>
@@ -714,6 +727,7 @@ const ChainBlock = React.memo(({ block, isSelected, onClick, forcedOff=false }) 
 function ModelBrowser({ onClose }) {
   const [q, setQ] = useState('');
   const [openCat, setOpenCat] = useState(null);
+  useEscape(onClose);
   const results = useMemo(() => {
     if (!q.trim()) return null;
     const lq = q.toLowerCase(), out = [];
@@ -823,6 +837,7 @@ function triggerDownload(content, filename, mime='application/json') {
 
 function ExportModal({ presets, active, onClose }) {
   const [mode,setMode]=useState('all'), [preview,setPreview]=useState(false), [done,setDone]=useState(false);
+  useEscape(onClose);
   const MODES=[
     {id:'all',icon:'📦',title:'전체 백업 (JSON)',desc:`모든 프리셋 ${presets.length}개 완전한 백업`,ext:'.json'},
     {id:'current',icon:'🎸',title:'현재 프리셋 (JSON)',desc:`"${active.name}" 단일 프리셋`,ext:'.json'},
@@ -910,7 +925,7 @@ function SettingCardModal({ preset, useCab, onClose, onToast }) {
   const text = settingCardText(preset, useCab);
   const copy = async () => onToast(await copyText(text) ? '세팅 카드를 복사했어요' : '⚠️ 복사하지 못했어요');
   const share = () => navigator.share({ title: `${preset.name} 세팅 카드`, text }).catch(() => {});
-  useEffect(() => { const onKey = e => e.key === 'Escape' && onClose(); window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [onClose]);
+  useEscape(onClose);
 
   // #root 밖(body)에 그려서 인쇄할 때 앱 화면 없이 카드만 나오게 함
   return ReactDOM.createPortal(
@@ -989,7 +1004,8 @@ const FX_TOGGLES=[{id:'comp',label:'Compressor',cat:'COMP'},{id:'chorus',label:'
 const DELAY_TYPES=['BBD Delay S','Tape Delay S','Digital Delay S','Slapback','Ping Pong','Pure'];
 const REVERB_TYPES=['Room','Hall','Plate','Spring','Shimmer','Sweet Space'];
 
-function wizardGenerate({ artist, song, genres, gainIdx, brightIdx, spaceIdx, fxOn, delayModel, reverbModel, useCab = true }) {
+// CAB 은 항상 넣어둠 — 앰프 리턴 모드에선 화면(OUTPUT MODE)에서 꺼진 것으로만 표시
+function wizardGenerate({ artist, song, genres, gainIdx, brightIdx, spaceIdx, fxOn, delayModel, reverbModel }) {
   const id=`wiz-${Date.now()}`, chain=[];
   if (gainIdx>=2||fxOn.includes('ns')) chain.push({cat:'NS',model:'Gate 1',active:true,params:{Threshold:26+gainIdx*5,Release:38}});
   if (fxOn.includes('comp')||gainIdx<=1) chain.push({cat:'COMP',model:gainIdx===0?'COMP4':'COMP',active:true,params:{Attack:22+gainIdx*4,Release:44,Ratio:28+gainIdx*5,Level:68}});
@@ -1003,14 +1019,12 @@ function wizardGenerate({ artist, song, genres, gainIdx, brightIdx, spaceIdx, fx
   const bass=Math.max(25,Math.min(80,[52,48,48,52,56][gainIdx]-(brightIdx-2)*4));
   chain.push({cat:'AMP',model:AMP_TABLE[gainIdx],active:true,params:{Gain:[16,34,58,74,88][gainIdx],Bass:bass,Mid:mid,Treble:treble,Vol:70,Presence:Math.max(30,Math.min(80,50+(brightIdx-2)*7))}});
   
-  if (useCab) {
-    let cabModel = 'UK LD';   // 실제 기기 캐비닛 이름
-    if (gainIdx === 0) cabModel = isJPop ? 'FOXY 2' : 'Dark Twin';
-    else if (gainIdx === 1) cabModel = isBlues ? 'UK GRN 2' : 'FOXY 2';
-    else if (gainIdx === 2) cabModel = 'UK GRN 2';
-    else cabModel = isMetal ? 'Mess' : 'UK LD';
-    chain.push({cat:'CAB',model:cabModel,active:true,params:{HiCut:Math.max(40,58-gainIdx*2),LoCut:Math.min(60,34+gainIdx*2),Mix:100}});
-  }
+  let cabModel = 'UK LD';   // 실제 기기 캐비닛 이름
+  if (gainIdx === 0) cabModel = isJPop ? 'FOXY 2' : 'Dark Twin';
+  else if (gainIdx === 1) cabModel = isBlues ? 'UK GRN 2' : 'FOXY 2';
+  else if (gainIdx === 2) cabModel = 'UK GRN 2';
+  else cabModel = isMetal ? 'Mess' : 'UK LD';
+  chain.push({cat:'CAB',model:cabModel,active:true,params:{HiCut:Math.max(40,58-gainIdx*2),LoCut:Math.min(60,34+gainIdx*2),Mix:100}});
 
   if (gainIdx>=3||(gainIdx>=2&&isMetal)) chain.push({cat:'EQ',model:'Mess EQ',active:true,params:{Lo:52,LMid:40+(brightIdx-2)*3,Mid:42+(brightIdx-2)*4,HMid:55,Hi:54+(brightIdx-2)*4}});
   if (fxOn.includes('chorus')) chain.push({cat:'CHO',model:brightIdx>=3?'G-Chorus':'A-Chorus',active:true,params:{Rate:28+spaceIdx*5,Depth:gainIdx<=1?42:25,Mix:32+spaceIdx*4}});
@@ -1078,7 +1092,8 @@ function applyRuleHardware(preset, rule) {
   return { ...preset, schema: PARAM_SCHEMA, pickup: normalizePickup(rule.pickup), chain: chain.map((b, i) => ({ ...b, id: `${preset.id}-${i}` })) };
 }
 
-function toneValidator(preset, genres) {
+// gainIdx·brightIdx: 위저드에서 사용자가 직접 고른 값 — 이 값과 반대되는 보정(게인·고음·픽업)은 하지 않음
+function toneValidator(preset, genres, { gainIdx = 2, brightIdx = 2 } = {}) {
   if (!preset) return preset;
 
   // Standardize genres to an array of lowercase strings
@@ -1101,13 +1116,14 @@ function toneValidator(preset, genres) {
   preset.pickup = normalizePickup(preset.pickup);
 
   if (isMetal) {
-    if (ampBlock) {
+    // 메탈 보정은 사용자가 High Gain 이상을 골랐을 때만 (클린/크런치를 골랐으면 그대로 둠)
+    if (ampBlock && gainIdx >= 3) {
       if (ampBlock.params.Gain < 75) ampBlock.params.Gain = 75;
-      if ('Treble' in ampBlock.params && ampBlock.params.Treble < 70) ampBlock.params.Treble = 70;
+      if (brightIdx >= 2 && 'Treble' in ampBlock.params && ampBlock.params.Treble < 70) ampBlock.params.Treble = 70;
       if ('Presence' in ampBlock.params) ampBlock.params.Presence = 72; // Lock Presence to 72 (Presence 노브가 있는 앰프만)
       if ('Middle' in ampBlock.params) ampBlock.params.Middle = 35; // Scoop Middle to 35
     }
-    preset.pickup = 'Position 1: Full Bridge';
+    if (gainIdx >= 2) preset.pickup = 'Position 1: Full Bridge';
     
     // Automatically turn ON the EQ module to ensure directness
     const eqBlock = preset.chain.find(b => b.cat === 'EQ');
@@ -1115,7 +1131,8 @@ function toneValidator(preset, genres) {
       eqBlock.active = true;
     }
   } else if (isRock) {
-    if (ampBlock) {
+    // 록 게인 범위(50~70)는 크런치를 골랐을 때만 맞춤
+    if (ampBlock && gainIdx === 2) {
       if (ampBlock.params.Gain < 50 || ampBlock.params.Gain > 70) {
         ampBlock.params.Gain = 60;
       }
@@ -1123,17 +1140,17 @@ function toneValidator(preset, genres) {
     }
   } else if (isJRockPop) {
     if (ampBlock) {
-      if (ampBlock.params.Gain > 50) ampBlock.params.Gain = 40;
-      if ('Treble' in ampBlock.params && ampBlock.params.Treble < 65) ampBlock.params.Treble = 65;
+      // 게인 상한은 Clean·Lt.Crunch 를 골랐을 때만 (High Gain 을 고른 J-Rock 은 그대로)
+      if (gainIdx <= 1 && ampBlock.params.Gain > 50) ampBlock.params.Gain = 40;
+      if (brightIdx >= 2 && 'Treble' in ampBlock.params && ampBlock.params.Treble < 65) ampBlock.params.Treble = 65;
     }
-    
-    // Switch to Position 2: Inner Coils
-    if (preset.pickup === 'Position 1: Full Bridge' || preset.pickup === 'Position 5: Full Neck') {
-      preset.pickup = 'Position 2: Inner Coils';
-    }
-    
+
+    // Switch to Position 2: Inner Coils (High Gain 이상은 풀 브리지가 맞으니 그대로)
+    const switchPickup = gainIdx <= 2 && (preset.pickup === 'Position 1: Full Bridge' || preset.pickup === 'Position 5: Full Neck');
+    if (switchPickup) preset.pickup = 'Position 2: Inner Coils';
+
     // Volume compensation: Switch to Position 2 outputs lower volume, compensate with +12% volume on AMP (max 95)
-    if (preset.pickup === 'Position 2: Inner Coils' && ampBlock && ampBlock.params.Volume !== undefined) {
+    if (switchPickup && ampBlock && ampBlock.params.Volume !== undefined) {
       ampBlock.params.Volume = Math.min(95, Math.round(ampBlock.params.Volume * 1.12));
     }
     
@@ -1152,18 +1169,19 @@ function toneValidator(preset, genres) {
 }
 
 
-function ToneWizardModal({ onClose, onSave }) {
+// useCab: 화면 하단 OUTPUT MODE — 결과 미리보기에서 CAB 을 꺼진 것으로 보여줄지만 결정
+function ToneWizardModal({ onClose, onSave, useCab }) {
   const [step,setStep]=useState(0);
   const [artist,setArtist]=useState(''), [song,setSong]=useState(''), [genres,setGenres]=useState([]);
   const [gainIdx,setGainIdx]=useState(0), [brightIdx,setBrightIdx]=useState(2), [spaceIdx,setSpaceIdx]=useState(1);
-    const [fxOn,setFxOn]=useState(['reverb']), [delayModel,setDelayModel]=useState(DELAY_TYPES[0]), [reverbModel,setReverbModel]=useState(REVERB_TYPES[1]);
+  const [fxOn,setFxOn]=useState(['reverb']), [delayModel,setDelayModel]=useState(DELAY_TYPES[0]), [reverbModel,setReverbModel]=useState(REVERB_TYPES[1]);
   const [result,setResult]=useState(null);
-  const [useCab,setUseCab]=useState(true);
+  useEscape(onClose);
   const toggleGenre=g=>setGenres(p=>p.includes(g)?p.filter(x=>x!==g):[...p,g]);
   // 코러스·플랜저·페이저는 기기의 MOD 모듈 하나를 같이 씀 → 하나를 켜면 나머지는 끔
   const MOD_FX=['chorus','flanger','phaser'];
   const toggleFx=f=>setFxOn(p=>p.includes(f)?p.filter(x=>x!==f):[...p.filter(x=>!(MOD_FX.includes(f)&&MOD_FX.includes(x))),f]);
-  const handleGenerate=()=>{ const preset = wizardGenerate({artist,song,genres,gainIdx,brightIdx,spaceIdx,fxOn,delayModel:fxOn.includes('delay')?delayModel:null,reverbModel:fxOn.includes('reverb')?reverbModel:null,useCab}); const validatedPreset = toneValidator(preset, genres); setResult(validatedPreset); setStep(3); };
+  const handleGenerate=()=>{ const preset = wizardGenerate({artist,song,genres,gainIdx,brightIdx,spaceIdx,fxOn,delayModel:fxOn.includes('delay')?delayModel:null,reverbModel:fxOn.includes('reverb')?reverbModel:null}); const validatedPreset = toneValidator(preset, genres, {gainIdx,brightIdx}); setResult(validatedPreset); setStep(3); };
   const STEPS=['곡 정보','게인 & 사운드','이펙터','결과'];
   const ChoiceRow=({items,active,onSelect,color='#3b82f6'})=>(
     <div className="flex gap-1.5 flex-wrap">
@@ -1209,11 +1227,14 @@ function ToneWizardModal({ onClose, onSave }) {
               </div>
 
               <div>
-                <div className="text-xs font-bold text-gray-400 mb-2">OUTPUT MODE (CAB SIM)</div>
-                <div className="flex gap-2">
-                  <button onClick={()=>setUseCab(true)} className={`flex-1 py-2 rounded-lg border text-xs font-bold transition-all ${useCab?'bg-blue-600/20 border-blue-500 text-blue-400':'bg-transparent border-[#2a2a2a] text-gray-500 hover:text-gray-400'}`}>Direct / Mixer (CAB ON)</button>
-                  <button onClick={()=>setUseCab(false)} className={`flex-1 py-2 rounded-lg border text-xs font-bold transition-all ${!useCab?'bg-blue-600/20 border-blue-500 text-blue-400':'bg-transparent border-[#2a2a2a] text-gray-500 hover:text-gray-400'}`}>Amp Return (CAB OFF)</button>
+                <label className="text-xs text-gray-400 uppercase tracking-widest block mb-2">장르 (여러 개 선택 가능)</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {GENRE_LIST.map(g=>(
+                    <button key={g} onClick={()=>toggleGenre(g)} className="px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all"
+                      style={genres.includes(g)?{background:'#7c3aed22',borderColor:'#8b5cf6',color:'#c4b5fd'}:{background:'#0d0d0d',borderColor:'#1a1a1a',color:'#6b7280'}}>{genres.includes(g)?'✓ ':''}{g}</button>
+                  ))}
                 </div>
+                <p className="text-[11px] text-gray-500 mt-2">출력 모드(CAB ON/OFF)는 화면 하단 OUTPUT MODE 설정을 따라요.</p>
               </div>
             </>
           )}
@@ -1281,8 +1302,8 @@ function ToneWizardModal({ onClose, onSave }) {
                   <div className="text-sm text-gray-400 uppercase tracking-widest mb-2">시그널 체인 ({result.chain.length} 블록)</div>
                   <div className="flex flex-wrap gap-1.5 items-center">
                     {result.chain.map((b,i)=>{
-                      const c=FX_COLOR[b.cat]??FX_COLOR.EQ;
-                      return <React.Fragment key={i}><div className="px-2 py-1 rounded-lg border text-center min-w-[52px]" style={{background:c.bg,borderColor:`${c.border}40`}}><div className="text-sm font-bold" style={{color:c.text}}>{FX_LABEL[b.cat]}</div><div className="text-[10px] mt-0.5" style={{color:c.text+'99'}}>{b.model}</div></div>{i<result.chain.length-1&&<ChevronRight size={8} className="text-gray-500"/>}</React.Fragment>;
+                      const c=FX_COLOR[b.cat]??FX_COLOR.EQ, off=!useCab&&b.cat==='CAB';
+                      return <React.Fragment key={i}><div className="px-2 py-1 rounded-lg border text-center min-w-[52px]" title={off?'앰프 리턴 모드: 기기에서 CAB을 끄세요':undefined} style={{background:c.bg,borderColor:`${c.border}40`,opacity:off?0.35:1}}><div className="text-sm font-bold" style={{color:c.text}}>{FX_LABEL[b.cat]}</div><div className="text-[10px] mt-0.5" style={{color:c.text+'99'}}>{b.model}</div></div>{i<result.chain.length-1&&<ChevronRight size={8} className="text-gray-500"/>}</React.Fragment>;
                     })}
                   </div>
                 </div>
@@ -1874,7 +1895,11 @@ function ToneCloudApp() {
   };
 
   const toastTimer = useRef(null);
-  const showToast = msg => { setToast(msg); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(null), 2800); };
+  // action: { label, onClick } — 토스트 안에 버튼 (예: 삭제 되돌리기). 버튼이 있으면 조금 더 오래 보여줌
+  const showToast = (msg, action = null) => {
+    setToast({ msg, action }); clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), action ? 6000 : 2800);
+  };
 
   // 프리셋을 바꾸면 이름 편집·삭제 확인 상태는 초기화
   useEffect(() => { setEditingName(null); setConfirmDelete(false); }, [activeId]);
@@ -1887,11 +1912,6 @@ function ToneCloudApp() {
   const active   = presets.find(p=>p.id===activeId)??presets[0];
   const selBlock = active?.chain.find(b=>b.id===selBlockId)??null;
   const allTags  = [...new Set(presets.flatMap(p=>p.tags))];
-  const filtered = presets.filter(p => {
-    const lq=search.toLowerCase();
-    return (!lq||p.name.toLowerCase().includes(lq)||p.artist.toLowerCase().includes(lq))
-        && (activeTags.length===0||activeTags.every(t=>p.tags.includes(t)));
-  });
 
   const updateParam = useCallback((blockId,key,value) => {
     setPresets(prev=>prev.map(p=>p.id!==activeId?p:{...p,chain:p.chain.map(b=>b.id!==blockId?b:{...b,params:{...b.params,[key]:value}})}));
@@ -1927,7 +1947,6 @@ function ToneCloudApp() {
       fxOn: params.fxOn,
       delayModel: null,
       reverbModel: null,
-      useCab: true // CAB 은 항상 넣어두고, 앰프 리턴 모드에선 화면에서 꺼진 것으로 표시
     });
     // 룰에 정의된 장비를 최종값으로 반영 (toneValidator 로 다시 덮어쓰지 않음)
     const preset = applyRuleHardware({ ...base, id: `ai-${Date.now()}`, isAI: true }, rule);
@@ -2023,10 +2042,21 @@ function ToneCloudApp() {
     if (!confirmDelete) { setConfirmDelete(true); return; }   // 첫 클릭은 확인 단계
     const i = presets.findIndex(p => p.id === active.id);
     const next = presets.filter(p => p.id !== active.id);
+    const removed = active, removedOriginal = originalsRef.current.get(active.id);
     originalsRef.current.delete(active.id);
     setPresets(next);
     setActiveId(next[Math.min(i, next.length - 1)].id); setSelBlockId(null);
-    showToast(`"${active.name}" 삭제됨`);
+    // 되돌리기: 원래 자리·RESET 원본까지 복원
+    const undo = () => {
+      if (removedOriginal) originalsRef.current.set(removed.id, removedOriginal);
+      setPresets(prev => {
+        if (prev.some(p => p.id === removed.id)) return prev;
+        const list = [...prev]; list.splice(Math.min(i, list.length), 0, removed); return list;
+      });
+      setActiveId(removed.id); setSelBlockId(null);
+      showToast(`"${removed.name}" 복원했어요`);
+    };
+    showToast(`"${active.name}" 삭제됨`, { label: '되돌리기', onClick: undo });
   };
 
   // ── 가져오기 (EXPORT 백업 JSON) — 기존 프리셋에 합침. 똑같은 프리셋은 건너뜀 ──
@@ -2065,7 +2095,7 @@ function ToneCloudApp() {
       {showBrowser && <ModelBrowser onClose={()=>setShowBrowser(false)}/>}
       {showExport  && <ExportModal presets={presets} active={active} onClose={()=>setShowExport(false)}/>}
       {showSettingCard && <SettingCardModal preset={active} useCab={useCab} onClose={()=>setShowSettingCard(false)} onToast={showToast}/>}
-      {showWizard  && <ToneWizardModal onClose={()=>setShowWizard(false)} onSave={(preset)=>{rememberOriginal(preset);setPresets(prev=>[preset,...prev]);setActiveId(preset.id);setSelBlockId(null);}}/>}
+      {showWizard  && <ToneWizardModal useCab={useCab} onClose={()=>setShowWizard(false)} onSave={(preset)=>{rememberOriginal(preset);setPresets(prev=>[preset,...prev]);setActiveId(preset.id);setSelBlockId(null);}}/>}
 
       <SlideInPanel block={selBlock} dbEntry={selDbEntry} color={selColor??{border:'#3b82f6',bg:'#0a1628',text:'#60a5fa'}}
         note={selBlock&&cabForcedOff(selBlock)?'앰프 리턴 모드라 이 CAB은 꺼진 것으로 표시돼요. 실제 기기에서도 CAB을 끄거나 No CAB Mode를 ON 하세요.':null}
@@ -2076,7 +2106,13 @@ function ToneCloudApp() {
         user={user} syncStatus={syncStatus} onSignIn={signIn} onSignOut={signOut} onMenu={()=>setShowDrawer(true)} />
       <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFile}/>
       {toast && (
-        <div className="fixed bottom-32 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] w-max max-w-[92vw] text-center px-4 py-2.5 rounded-xl border border-[#404040] bg-[#161616] text-sm font-bold text-gray-100 shadow-2xl" role="status">{toast}</div>
+        <div className="fixed bottom-32 md:bottom-6 left-1/2 -translate-x-1/2 z-[60] w-max max-w-[92vw] flex items-center gap-3 text-center px-4 py-2.5 rounded-xl border border-[#404040] bg-[#161616] text-sm font-bold text-gray-100 shadow-2xl" role="status">
+          <span>{toast.msg}</span>
+          {toast.action && (
+            <button onClick={()=>{ const a = toast.action; setToast(null); a.onClick(); }}
+              className="flex-shrink-0 px-2.5 py-1 rounded-lg border border-blue-500/60 text-blue-300 hover:bg-blue-600 hover:text-white text-xs font-black transition-colors">{toast.action.label}</button>
+          )}
+        </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
