@@ -16,7 +16,7 @@
     });
   </script>
   <script src="./genreMapper.js?v=3"></script>
-  <script src="./gp200jrModels.js?v=1"></script>
+  <script src="./gp200jrModels.js?v=3"></script>
   <!-- Firebase (구글 로그인 + Firestore 클라우드 동기화). 로딩에 실패해도 앱은 로컬 저장으로 동작 -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -117,6 +117,7 @@ const MODEL_DB = { // (was export const)
       { id:'Precise OD',  name:'Precise OD',  base:'Horizon Devices Precision Drive',   desc:'EQ 기능 내장 고정밀 드라이브' },
       { id:'Empire OD',   name:'Empire OD',   base:'Analog.Man Prince of Tone',         desc:'플렉시 스타일 크런치' },
       { id:'Force',       name:'Force',       base:'Fulltone OCD',                      desc:'하이-게인 오버드라이브, 표현력 풍부' },
+      { id:'Tube OD',     name:'Tube OD',     base:'B.K. Butler Tube Driver',           desc:'튜브 드라이브 질감의 오버드라이브 (펌웨어 1.8.0)' },
       { id:'Blues Master',name:'Blues Master',base:'Marshall BluesBreaker',             desc:'마샬 블루스브레이커 스타일' },
       { id:'Master OD',   name:'Master OD',   base:'Custom Plexi-style',                desc:'클린~플렉시 스타일까지 넓은 EQ 범위' },
     ],
@@ -188,6 +189,7 @@ const MODEL_DB = { // (was export const)
     label: 'CHORUS', color: { border:'#8b5cf6', bg:'#110a24', text:'#a78bfa' },
     models: [
       { id:'G-Chorus', name:'G-Chorus', base:'Boss CE-1 / Roland JC-120',   desc:'전설의 앙상블 코러스' },
+      { id:'A-Chorus', name:'A-Chorus', base:'80s Analog Chorus',           desc:'1980년대 클래식 코러스, 로터리 느낌까지 (펌웨어 1.8.0)' },
       { id:'C-Chorus', name:'C-Chorus', base:'Analog Multi-mode Chorus',    desc:'멀티모드 아날로그 코러스' },
       { id:'B-Chorus', name:'B-Chorus', base:'Boss CE-5 Stereo Chorus',     desc:'스테레오 4버튼 코러스 페달' },
       { id:'M-Chorus', name:'M-Chorus', base:'Multi-dimensional Chorus',    desc:'다차원 코러스 이펙트' },
@@ -235,6 +237,7 @@ const MODEL_DB = { // (was export const)
       { id:'Ice Delay',      name:'Ice Delay',      base:'Pitch-shifted Delay',           desc:'피치 시프트 딜레이' },
       { id:'Ambience 1',     name:'Ambience 1',     base:'Multi-tap Ambience',            desc:'멀티탭 앰비언스' },
       { id:'Ambience 2',     name:'Ambience 2',     base:'Clean Ambience',               desc:'깔끔한 앰비언스 딜레이' },
+      { id:'Broken Delay',   name:'Broken Delay',   base:'Glitch Delay',                 desc:'스터터·끊김을 만드는 글리치 딜레이 (펌웨어 1.8.0)' },
     ],
   },
   RVB: {
@@ -267,6 +270,7 @@ const MODEL_DB = { // (was export const)
     models: [
       { id:'Gate 1', name:'Gate 1', base:'ISP Decimator',          desc:'ISP Decimator 기반 노이즈 게이트' },
       { id:'Gate 2', name:'Gate 2', base:'Flexible Noise Gate',    desc:'어택/릴리즈 조절 가능 게이트' },
+      { id:'Gate 3', name:'Gate 3', base:'Inverse Expander Gate',  desc:'인버스 익스팬더 게이트 (펌웨어 1.8.0)' },
     ],
   },
   WAH: {
@@ -303,15 +307,14 @@ const FX_LABEL = Object.fromEntries(Object.entries(MODEL_DB).map(([k,v]) => [k, 
 // ── 실제 기기 파라미터 표(gp200jrModels.js, 펌웨어 V1.7.0) 연결 ─────────────────
 // 모든 블록은 normalizeBlock 을 거쳐 "기기 화면과 같은 파라미터 이름·개수·순서"로 맞춰진다.
 // schema 2 = 이 표에 맞춘 프리셋. 그 이전에 저장된 프리셋은 한 번만 옛 이름/값을 변환(migrate)한다.
-const PARAM_SCHEMA = 2;
+const PARAM_SCHEMA = 3;   // 3: 캐비닛 Low/Hi Cut 을 Hz 로 (사용자 확인 2026-10)
 const GP = window.GP200JR ?? null;
 // 기기에 없는 옛 모델 이름 → 가장 가까운 실제 모델
 const MODEL_RENAMES = {
   CAB: { '4x12 GRN':'UK GRN 2', '4x12 V30':'UK LD', '4x12 Mesa':'Mess', '2x12 Vox':'FOXY 2', '2x12 Fender':'Dark Twin',
          '1x12 Fender':'Dark LUX', '4x12 Fender':'Bellman 2', '4x12 MD':'UK MD', '4x12 Orange':'Juice', '4x12 Soldano':'Solo' },
-  CHO: { 'A-Chorus':'G-Chorus' },
-  NS:  { 'Gate 3':'Gate 2' },
-  OD:  { 'Tube':'Scream OD' },
+  // V1.8.0 에 있는 A-Chorus·Gate 3 은 그대로 두고, 옛 'Tube' 는 V1.8.0 의 'Tube OD'
+  OD:  { 'Tube':'Tube OD' },
 };
 // 옛 파라미터 이름 → 실제 이름 (실제 이름이 없을 때만 차례로 찾아 씀)
 const PARAM_ALIASES = {
@@ -334,9 +337,13 @@ function paramDefault(p) {
   if (p.t === 'select') return p.o[0];
   if (p.unit === 'ms') return 400;
   if (p.n === 'Low Cut' || p.n === 'Lo Cut') return 0;
-  if (p.n === 'Hi Cut' || p.n === 'High Cut') return 100;
+  if (p.n === 'Latch' || p.n === 'Cut') return 0;   // Broken Delay: 0 = 글리치 없음
+  if (p.offAtZero) return 0;                                            // CAB Hi Cut: 0Hz = 자르지 않음
+  if (p.n === 'Hi Cut' || p.n === 'High Cut') return p.max ?? 100;
   return Math.round(((p.min ?? 0) + (p.max ?? 100)) / 2);
 }
+// 옛 0~100 캐비닛 컷 값 → Hz. Low Cut 은 ×2 (34 → 68Hz, 저음 정리 정도), Hi Cut 은 '자르지 않음'
+const legacyCutToHz = (p, v) => (p.offAtZero ? 0 : Math.round(v * 2));
 function coerceParam(p, v, migrate) {
   if (p.t === 'switch') return v === undefined ? paramDefault(p) : !!v;
   if (p.t === 'select') return p.o.includes(String(v)) ? String(v) : paramDefault(p);
@@ -344,6 +351,7 @@ function coerceParam(p, v, migrate) {
   if (migrate && v >= 0 && v <= 100) {   // 옛 값은 모두 0~100 기준
     if (p.unit === 'dB') v = Math.round((v - 50) / 50 * p.max);   // 50 = 0dB
     else if (p.unit === 'ms') v = v * 10;                         // 45 → 450ms
+    else if (p.unit === 'Hz' && /Cut$/.test(p.n)) v = legacyCutToHz(p, v);
   }
   return Math.max(p.min ?? 0, Math.min(p.max ?? 100, Math.round(v)));
 }
@@ -360,14 +368,28 @@ function normalizeBlock(b, migrate = false) {
   }
   return { ...b, model, params };
 }
-const normalizePreset = p => ({ ...p, schema: PARAM_SCHEMA, chain: p.chain.map(b => normalizeBlock(b, p.schema !== PARAM_SCHEMA)) });
+// 저장 형식 버전별 변환
+//  1(없음) → 옛 이름·0~100 값 전부 변환 / 2 → 캐비닛 Low/Hi Cut 만 0~100 숫자로 남아 있어 Hz 로 변환
+function normalizeChain(chain, fromSchema) {
+  return chain.map(b => {
+    const nb = normalizeBlock(b, fromSchema < 2);
+    if (fromSchema !== 2 || nb.cat !== 'CAB') return nb;
+    const params = { ...nb.params };
+    for (const name of ['Low Cut', 'Hi Cut']) {
+      const p = paramSpec(nb, name);
+      if (p && typeof b.params?.[name] === 'number') params[name] = legacyCutToHz(p, b.params[name]);
+    }
+    return { ...nb, params };
+  });
+}
+const normalizePreset = p => ({ ...p, schema: PARAM_SCHEMA, chain: normalizeChain(p.chain, p.schema ?? 1) });
 // 저장 데이터(localStorage·클라우드) 정규화 — 옛 프리셋의 RESET 원본도 같은 규칙으로 변환
 function normalizeSavedState({ presets, originals }) {
-  const migrated = new Set(presets.filter(p => p.schema !== PARAM_SCHEMA).map(p => p.id));
+  const fromById = new Map(presets.map(p => [p.id, p.schema ?? 1]));
   return {
     presets: presets.map(normalizePreset),
     originals: Object.fromEntries(Object.entries(originals ?? {}).filter(([, c]) => Array.isArray(c))
-      .map(([id, chain]) => [id, chain.map(b => normalizeBlock(b, migrated.has(id)))])),
+      .map(([id, chain]) => [id, normalizeChain(chain, fromById.get(id) ?? PARAM_SCHEMA)])),
   };
 }
 
@@ -385,7 +407,9 @@ function applyAmpBright(chain, bright) {
 function fmtParamValue(p, v) {
   if (typeof v === 'boolean') return v ? 'ON' : 'OFF';
   if (!p?.unit) return String(v);
-  if (p.unit === 'dB' || p.unit === 'st' || p.unit === 'cents' || p.unit === 'Hz') return `${v > 0 ? '+' : ''}${v}${p.unit === 'cents' ? '¢' : p.unit}`;
+  if (p.offAtZero && v === 0) return '0Hz(OFF)';
+  // 음수가 가능한 값만 + 기호 (EQ dB, 피치, Ring Mod Fine …)
+  if ((p.min ?? 0) < 0) return `${v > 0 ? '+' : ''}${v}${p.unit === 'cents' ? '¢' : p.unit}`;
   return `${v}${p.unit}`;
 }
 const fmtBlockParams = b => Object.entries(b.params).map(([k, v]) => `${k} ${fmtParamValue(paramSpec(b, k), v)}`).join(' · ');
@@ -439,7 +463,7 @@ const INITIAL_PRESETS = [
       { id:'p4c1', cat:'NS',  model:'Gate 2',      active:true,  params:{ Threshold:35, Release:40 } },
       { id:'p4c2', cat:'OD',  model:'Green OD',    active:true,  params:{ Drive:55, Tone:50, Level:65 } },
       { id:'p4c3', cat:'AMP', model:'UK 800',      active:true,  params:{ Gain:72, Bass:50, Mid:62, Treble:55, Vol:70, Presence:65 } },
-      { id:'p4c4', cat:'CAB', model:'4x12 GRN',    active:true,  params:{ HiCut:55, Mix:100 } },
+      { id:'p4c4', cat:'CAB', model:'4x12 GRN',    active:true,  params:{ HiCut:55, LoCut:40, Mix:100 } },
       { id:'p4c5', cat:'DLY', model:'Tape Delay S',active:true,  params:{ Time:50, Feedback:35, Mix:28, HiCut:55 } },
       { id:'p4c6', cat:'RVB', model:'Spring',      active:true,  params:{ Decay:40, Mix:22 } },
     ],
@@ -451,14 +475,14 @@ const INITIAL_PRESETS = [
       { id:'p5c1', cat:'NS',  model:'Gate 1',    active:true,  params:{ Threshold:38, Release:35 } },
       { id:'p5c2', cat:'DST', model:'Lazaro',    active:true,  params:{ Sustain:75, Tone:45, Volume:70 } },
       { id:'p5c3', cat:'AMP', model:'Mess DualM',active:true,  params:{ Gain:80, Bass:55, Mid:45, Treble:60, Vol:70, Presence:70 } },
-      { id:'p5c4', cat:'CAB', model:'4x12 Mesa', active:true,  params:{ HiCut:50, Mix:100 } },
+      { id:'p5c4', cat:'CAB', model:'4x12 Mesa', active:true,  params:{ HiCut:50, LoCut:45, Mix:100 } },
       { id:'p5c5', cat:'RVB', model:'Room',      active:true,  params:{ Decay:25, Mix:12 } },
     ],
   },
 ].map(normalizePreset);   // 옛 형식으로 적고 표에 맞춰 변환 (기기 화면과 같은 파라미터)
 // 범위 기본 0~100. ms·dB 처럼 범위가 다른 파라미터는 min/max/unit 으로 받음
 const knobStep = (min, max) => (max - min > 200 ? 10 : 1);
-const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', min=0, max=100, unit='' }) => {
+const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', min=0, max=100, unit='', offAtZero=false }) => {
   const frac = Math.max(0, Math.min(1, (value - min) / (max - min)));
   const step = knobStep(min, max);
   const clamp = v => Math.max(min, Math.min(max, v));
@@ -528,13 +552,13 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', 
           value={inputStr} onChange={e=>setInputStr(e.target.value)}
           onBlur={commitEdit} onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditing(false);}}/>
       ) : (
-        <button onDoubleClick={openEdit} onClick={()=>{ if (IS_TOUCH) openEdit(); }} className="text-xs font-mono px-1.5 py-0.5 rounded border border-transparent hover:border-current transition-colors" style={{color}}>{fmtParamValue({unit}, value)}</button>
+        <button onDoubleClick={openEdit} onClick={()=>{ if (IS_TOUCH) openEdit(); }} className="text-xs font-mono px-1.5 py-0.5 rounded border border-transparent hover:border-current transition-colors" style={{color}}>{fmtParamValue({unit, min, offAtZero}, value)}</button>
       )}
     </div>
   );
 }, (prev, next) => {
   return prev.value === next.value && prev.color === next.color && prev.size === next.size && prev.label === next.label
-      && prev.min === next.min && prev.max === next.max && prev.unit === next.unit;
+      && prev.min === next.min && prev.max === next.max && prev.unit === next.unit && prev.offAtZero === next.offAtZero;
 });
 
 function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleActive, onReset, note }) {
@@ -593,7 +617,7 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
                         const min = p?.min ?? 0, max = p?.max ?? 100, step = knobStep(min, max);
                         return (
                           <div key={key} className="flex flex-col items-center gap-1">
-                            <InteractiveKnob label={key} value={val} color={color.border} size="lg" min={min} max={max} unit={p?.unit ?? ''} onChange={v=>onParamChange(key,v)}/>
+                            <InteractiveKnob label={key} value={val} color={color.border} size="lg" min={min} max={max} unit={p?.unit ?? ''} offAtZero={!!p?.offAtZero} onChange={v=>onParamChange(key,v)}/>
                             <div className="flex items-center gap-1 mt-0.5">
                               <button onClick={()=>onParamChange(key,Math.max(min,val-step))} className="w-5 h-5 flex items-center justify-center rounded border border-[#1e1e1e] text-gray-400 hover:text-gray-300 transition-colors"><Minus size={9}/></button>
                               <button onClick={()=>onParamChange(key,Math.min(max,val+step))} className="w-5 h-5 flex items-center justify-center rounded border border-[#1e1e1e] text-gray-400 hover:text-gray-300 transition-colors"><Plus size={9}/></button>
@@ -769,7 +793,7 @@ function ModelBrowser({ onClose }) {
   );
 }
 
-const FIRMWARE='V1.7.0', DEVICE='Valeton GP-200JR', GUITAR='Schecter Sunset-6 Extreme';
+const FIRMWARE='V1.8.0', DEVICE='Valeton GP-200JR', GUITAR='Schecter Sunset-6 Extreme';
 function buildBackupJSON(p) { return JSON.stringify({_meta:{app:'TONE CLOUD GP-200JR Edition',device:DEVICE,firmware:FIRMWARE,guitar:GUITAR,exported:new Date().toISOString(),total:p.length},presets:p},null,2); }
 function buildPresetJSON(p) { return JSON.stringify({_meta:{device:DEVICE,firmware:FIRMWARE,exported:new Date().toISOString()},preset:p},null,2); }
 function buildReadableText(presets) {
@@ -859,7 +883,7 @@ function settingCardText(preset, useCab) {
     `아티스트: ${preset.artist}${isRealSong(preset.song) ? ` / 곡: ${preset.song}` : ''}`,
     `기기: ${DEVICE} · 기타: ${GUITAR}`,
     `픽업: ${preset.pickup}`,
-    `출력: ${useCab ? 'Direct / Mixer → 기기 Global Cab Sim ON' : 'Amp Return → 기기 Global Cab Sim OFF'}`,
+    `출력: ${useCab ? 'Direct / Mixer → 기기 No CAB Mode OFF (CAB 사용)' : 'Amp Return → 기기 No CAB Mode ON (또는 CAB 모듈 OFF)'}`,
     '──────────────────────────',
   ];
   preset.chain.forEach((b, i) => {
@@ -906,7 +930,7 @@ function SettingCardModal({ preset, useCab, onClose, onToast }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
             <div className="rounded-lg border border-blue-500/25 bg-blue-900/15 px-3 py-2"><span className="text-gray-500">픽업 </span><strong className="text-blue-300">{preset.pickup}</strong></div>
             <div className={`rounded-lg border px-3 py-2 ${useCab?'border-blue-500/25 bg-blue-900/15':'border-orange-500/30 bg-orange-900/15'}`}>
-              <span className="text-gray-500">Global Cab Sim </span><strong className={useCab?'text-blue-300':'text-orange-300'}>{useCab?'ON (Direct/Mixer)':'OFF (Amp Return)'}</strong>
+              <span className="text-gray-500">No CAB Mode </span><strong className={useCab?'text-blue-300':'text-orange-300'}>{useCab?'OFF (Direct/Mixer)':'ON (Amp Return)'}</strong>
             </div>
           </div>
 
@@ -989,7 +1013,7 @@ function wizardGenerate({ artist, song, genres, gainIdx, brightIdx, spaceIdx, fx
   }
 
   if (gainIdx>=3||(gainIdx>=2&&isMetal)) chain.push({cat:'EQ',model:'Mess EQ',active:true,params:{Lo:52,LMid:40+(brightIdx-2)*3,Mid:42+(brightIdx-2)*4,HMid:55,Hi:54+(brightIdx-2)*4}});
-  if (fxOn.includes('chorus')) chain.push({cat:'CHO',model:'G-Chorus',active:true,params:{Rate:28+spaceIdx*5,Depth:gainIdx<=1?42:25,Mix:32+spaceIdx*4}});
+  if (fxOn.includes('chorus')) chain.push({cat:'CHO',model:brightIdx>=3?'G-Chorus':'A-Chorus',active:true,params:{Rate:28+spaceIdx*5,Depth:gainIdx<=1?42:25,Mix:32+spaceIdx*4}});
   // 코러스·플랜저·페이저는 기기의 MOD 모듈 하나를 같이 써서 1개만 (코러스 > 플랜저 > 페이저)
   else if (fxOn.includes('flanger')) chain.push({cat:'FLG',model:'Jet',active:true,params:{Rate:30,Depth:45,Feedback:38,Mix:32}});
   else if (fxOn.includes('phaser')) chain.push({cat:'PHS',model:'O-Phase',active:true,params:{Rate:35,Depth:50,Mix:38}});
@@ -1962,10 +1986,14 @@ function ToneCloudApp() {
     setActiveId(aiPreview.id); setSelBlockId(null); setAiPreview(null); setAiQuery('');
   };
   const addCabBlock = () => {
+    if (active.chain.some(b => b.cat === 'CAB')) return;
+    // 실제 기기 캐비닛·파라미터로 (Marshall 1960AV 4x12, 저음 80Hz 정리, 고음은 자르지 않음)
+    const cab = normalizeBlock({ id: `${active.id}-cab-${Date.now()}`, cat: 'CAB', model: 'UK LD', active: true, params: { Volume: 50, 'Low Cut': 80, 'Hi Cut': 0 } });
+    // RESET 이 되도록 원본에도 추가
+    originalsRef.current.set(active.id, [...(originalsRef.current.get(active.id) ?? []), cloneChain([cab])[0]]);
     setPresets(prev => prev.map(p => {
-      if (p.id !== activeId || p.chain.some(b => b.cat === 'CAB')) return p;
+      if (p.id !== active.id || p.chain.some(b => b.cat === 'CAB')) return p;
       const ampIdx = p.chain.findIndex(b => b.cat === 'AMP');
-      const cab = { id: `${p.id}-cab-${Date.now()}`, cat: 'CAB', model: '4x12 V30', active: true, params: { HiCut: 50, LoCut: 40, Mix: 100 } };
       const chain = [...p.chain];
       chain.splice(ampIdx === -1 ? chain.length : ampIdx + 1, 0, cab);
       return { ...p, chain };
@@ -2040,7 +2068,7 @@ function ToneCloudApp() {
       {showWizard  && <ToneWizardModal onClose={()=>setShowWizard(false)} onSave={(preset)=>{rememberOriginal(preset);setPresets(prev=>[preset,...prev]);setActiveId(preset.id);setSelBlockId(null);}}/>}
 
       <SlideInPanel block={selBlock} dbEntry={selDbEntry} color={selColor??{border:'#3b82f6',bg:'#0a1628',text:'#60a5fa'}}
-        note={selBlock&&cabForcedOff(selBlock)?'앰프 리턴 모드라 이 CAB은 꺼진 것으로 표시돼요. 실제 기기에서도 CAB을 OFF 하세요.':null}
+        note={selBlock&&cabForcedOff(selBlock)?'앰프 리턴 모드라 이 CAB은 꺼진 것으로 표시돼요. 실제 기기에서도 CAB을 끄거나 No CAB Mode를 ON 하세요.':null}
         onClose={()=>setSelBlockId(null)} onParamChange={(key,val)=>updateParam(selBlock.id,key,val)}
         onToggleActive={()=>toggleBlockActive(selBlock.id)} onReset={()=>resetBlockParams(selBlock.id)}/>
 
@@ -2143,7 +2171,7 @@ function ToneCloudApp() {
             )}
             {!useCab && hasCab && (
               <div className="mt-2.5 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border bg-orange-900/15 border-orange-500/30 text-orange-300">
-                ⚠️ 앰프 리턴 모드: CAB 블록은 꺼진 것으로 표시돼요. 실제 GP-200JR에서도 CAB을 OFF 하세요.
+                ⚠️ 앰프 리턴 모드: CAB 블록은 꺼진 것으로 표시돼요. 실제 GP-200JR에서도 CAB 모듈을 끄거나, Global Settings → Input/Output → No CAB Mode를 ON 하세요.
               </div>
             )}
             {moduleConflicts(active.chain).map(({ module, list }) => (

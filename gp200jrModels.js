@@ -1,7 +1,7 @@
 /**
- * gp200jrModels.js — Valeton GP-200JR 실제 이펙트 모델 & 파라미터 표 (펌웨어 V1.7.0)
+ * gp200jrModels.js — Valeton GP-200JR 실제 이펙트 모델 & 파라미터 표 (펌웨어 V1.8.0)
  *
- * 출처: GP-200JR Online Manual (EN, Firmware V1.7.0) "Effect List" p.24–67
+ * 출처: GP-200JR Online Manual (EN, Firmware V1.8.0) "Effect List" (V1.7.0 표에 A-Chorus·Gate 3·Tube OD·Broken Delay 추가)
  *       https://www.valeton.net/wpfd_file/gp-200jr_online-manual_en_firmware-v1-7-0-pdf/
  *       ※ 매뉴얼 PDF 의 DLY 표는 설명·파라미터 칸이 모델 이름보다 한 줄씩 밀려 있어 설명 내용으로 맞춤
  *
@@ -23,7 +23,7 @@ const R    = (n, min, max, unit, extra = {}) => ({ n, min, max, unit, ...extra }
 const SW   = n => ({ n, t: 'switch' });
 const SEL  = (n, o) => ({ n, t: 'select', o });
 const SYNC = SW('Sync'), TRAIL = SW('Trail');
-const TIME = R('Time', 20, 2000, 'ms', { verify: true });   // 사용자 확인: 단위 ms / 최대값은 기기 확인 필요
+const TIME = R('Time', 0, 4000, 'ms');   // 사용자 확인(2026-10): 0~4000ms
 
 // 모듈별로 따로 보관 — 같은 이름이 여러 모듈에 있음 (예: 'Dark Twin' 은 AMP 이자 CAB)
 const models = {};
@@ -85,6 +85,7 @@ add('DST', 'OD', ['Green OD', 'Swarm'], K('Gain', 'Tone', 'Volume'));
 odsShared('DST');
 add('DST', 'OD', 'Scream OD',   [...K('Gain', 'Volume', 'Tone'), SW('Fat'), SW('Air')]);
 add('DST', 'OD', 'Force',       [...K('Gain', 'Tone', 'Volume'), SEL('Mode', ['HP', 'LP'])]);
+add('DST', 'OD', 'Tube OD',     K('Gain', 'Volume', 'Bass', 'Treble'));   // V1.8.0 신규 — B.K. Butler Tube Driver
 add('DST', 'OD', 'Blues Master', K('Gain', 'Volume', 'Bass', 'Middle', 'Treble'));
 add('DST', 'OD', 'Master OD',   K('Gain', 'Tone', 'Volume'));
 add('DST', 'OD', 'TaiChi OD',   K('Gain', 'Tone', 'Volume', 'Voice'));
@@ -156,12 +157,14 @@ add('AMP', 'Acoustic', ['AC Pre', 'AC Pre 2'], K('Volume', 'Tone', 'Balance', 'E
 snapTones('AMP');
 
 // ── NR ───────────────────────────────────────────────────────────────────────
-add('NR', 'Gate', 'Gate 1', [{ n: 'Threshold', verify: true }]);   // 범위는 나중에 기기로 확인
+add('NR', 'Gate', 'Gate 1', K('Threshold'));   // 사용자 확인: 0~100
 add('NR', 'Gate', 'Gate 2', K('Threshold', 'Attack', 'Release'));
+add('NR', 'Gate', 'Gate 3', K('Threshold', 'Ratio', 'Attack', 'Release', 'Hold', 'Hysteresis'));   // V1.8.0 신규 — 인버스 익스팬더
 autoSwell('NR');
 
 // ── CAB (모든 캐비닛 공통 파라미터) ─────────────────────────────────────────
-const CAB = K('Volume', 'Low Cut', 'Hi Cut');
+// 사용자 확인(2026-10): Low Cut 0~2000Hz, Hi Cut 0~2000Hz (Hi Cut 0Hz = 자르지 않음으로 해석 — 소리로 확인 필요)
+const CAB = [...K('Volume'), R('Low Cut', 0, 2000, 'Hz'), R('Hi Cut', 0, 2000, 'Hz', { offAtZero: true, verify: true })];
 const cabs = {
   'SUP ZEP': '1x6 Supro', 'TWD CP': '1x8 Fender Champ', 'TWD PRC': '1x10 Fender Princeton', 'TWD SUP': '2x10 Fender Tweed',
   'TWD LUX': '1x12 Fender Tweed Deluxe', 'Dark LUX': '1x12 Fender Deluxe', 'Dark VIT': '1x12 Fender Vibrolux',
@@ -198,6 +201,7 @@ add('EQ', 'EQ', 'Hyper EQ',    [...bands(['31Hz', '63Hz', '125Hz', '250Hz', '500
 // ── MOD (코러스·플랜저·페이저·트레몰로 등 — 한 번에 1개만) ──────────────────
 add('MOD', 'Chorus', ['G-Chorus', 'B-Chorus'], [...K('Depth', 'Rate', 'Volume'), SYNC]);
 add('MOD', 'Chorus', 'C-Chorus', [SEL('Mode', ['1', '2', '3', '4'])]);
+add('MOD', 'Chorus', 'A-Chorus', [...K('Depth', 'Rate', 'Tone'), SYNC]);   // V1.8.0 신규 — 80년대 코러스
 add('MOD', 'Chorus', 'M-Chorus', [...K('Mix', 'Rate', 'Filter', 'Depth L', 'Depth C', 'Depth R'), SYNC]);
 add('MOD', 'Flanger', ['Jet', 'B-Jet', 'N-Jet'], [...K('Depth', 'Rate', 'Pre Delay', 'Feedback'), SYNC]);
 add('MOD', 'Flanger', 'Trem Jet', [...K('Flg Depth', 'Flg Rate', 'Feedback', 'Trm Depth', 'Trm Rate'), SW('Flg Sync'), SW('Trm Sync')]);
@@ -230,8 +234,9 @@ add('DLY', 'Delay', 'M-Echo', [...K('Mix', 'Feedback'), TIME, ...K('Tone'), SEL(
 add('DLY', 'Delay', 'Vintage Rack', [...K('Mix', 'Feedback'), TIME, ...K('Mod', 'Tone'), SYNC, TRAIL]);
 add('DLY', 'Delay', 'Lofi Echo', [...K('Mix', 'Feedback'), TIME, ...K('Crush', 'Bit'), SYNC, TRAIL]);
 add('DLY', 'Delay', 'Rev Echo', [...K('Mix', 'Feedback'), TIME, ...K('Volume'), SYNC, TRAIL]);
-add('DLY', 'Delay', 'Dual Echo', [...K('Mix A', 'FB A'), R('Time A', 20, 2000, 'ms', { verify: true }), ...K('Mix B', 'FB B'), R('Time B', 20, 2000, 'ms', { verify: true }), SW('A Sync'), SW('B Sync'), TRAIL]);
+add('DLY', 'Delay', 'Dual Echo', [...K('Mix A', 'FB A'), R('Time A', 0, 4000, 'ms'), ...K('Mix B', 'FB B'), R('Time B', 0, 4000, 'ms'), SW('A Sync'), SW('B Sync'), TRAIL]);
 add('DLY', 'Delay', 'Ice Delay', [...K('Mix'), TIME, ...K('Feedback', 'Mod', 'Tone'), SEL('Pitch', ['-12', '-7', '-5', '+5', '+7', '+12']), SEL('Slice', ['1/16', '1/8', '1/4']), SEL('Direction', ['Forward', 'Reverse']), ...K('Blend', 'Smooth', 'Level'), SYNC, TRAIL], { verify: true });
+add('DLY', 'Delay', 'Broken Delay', [...K('Mix'), TIME, ...K('Feedback', 'Latch', 'Cut'), SYNC, TRAIL]);   // V1.8.0 신규 (Latch·Cut 0 = 글리치 없음)
 
 // ── RVB ──────────────────────────────────────────────────────────────────────
 add('RVB', 'Reverb', ['Room', 'Hall', 'Church'], [...K('Mix', 'Pre Delay', 'Decay'), TRAIL]);
@@ -245,8 +250,8 @@ add('RVB', 'Reverb', ['Sweet Space', 'Shimmer'], [...K('Mix', 'Pre Delay', 'Deca
 add('VOL', 'Volume', 'Volume', K('Volume'));
 
 window.GP200JR = {
-  firmware: 'V1.7.0',
-  source: 'GP-200JR Online Manual EN (Firmware V1.7.0) — Effect List p.24-67',
+  firmware: 'V1.8.0',
+  source: 'GP-200JR Online Manual EN (Firmware V1.8.0) — Effect List',
   modules: ['PRE', 'WAH', 'DST', 'AMP', 'NR', 'CAB', 'EQ', 'MOD', 'DLY', 'RVB', 'VOL'],
   models,
   // 앱 블록 카테고리 → 기기 모듈 (앱의 'WAH' 카테고리 모델 T-Wah/A-WAH/Step Filter 는 기기에선 PRE)
