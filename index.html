@@ -572,7 +572,7 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', 
       && prev.min === next.min && prev.max === next.max && prev.unit === next.unit && prev.offAtZero === next.offAtZero;
 });
 
-function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleActive, onReset, note }) {
+function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleActive, onReset, note, onModelChange, onMove, onRemove, canMove = [false, false] }) {
   const isOpen = !!block;
   const spec = block ? modelSpec(block.cat, block.model) : null;
   useEscape(onClose, isOpen);
@@ -605,12 +605,27 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
               {note && (
                 <div className="rounded-lg px-3 py-2 mb-3 text-xs font-bold bg-orange-900/15 border border-orange-500/30 text-orange-300">⚠️ {note}</div>
               )}
+              {/* 같은 카테고리의 다른 모델로 교체 — 이름이 같은 파라미터 값은 그대로 유지 */}
+              {MODEL_DB[block.cat] && (
+                <label className="flex items-center gap-2 mb-3">
+                  <span className="text-xs text-gray-400 uppercase tracking-widest flex-shrink-0">MODEL</span>
+                  <select value={block.model} onChange={e=>onModelChange(e.target.value)}
+                    className="flex-1 min-w-0 bg-[#111] border rounded-lg px-2 py-1.5 text-base sm:text-xs font-bold focus:outline-none"
+                    style={{borderColor:`${color.border}50`,color:color.text}}>
+                    {!MODEL_DB[block.cat].models.some(m => m.id === block.model) && <option value={block.model}>{block.model}</option>}
+                    {MODEL_DB[block.cat].models.map(m => <option key={m.id} value={m.id}>{m.name} — {m.base}</option>)}
+                  </select>
+                </label>
+              )}
               <div className="flex items-center gap-2">
                 <button onClick={onToggleActive} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border font-bold text-[13px] uppercase tracking-wider transition-all"
                   style={block.active?{background:`${color.border}18`,borderColor:`${color.border}50`,color:color.border}:{background:'#111',borderColor:'#222',color:'#4b5563'}}>
                   <Power size={11}/>{block.active?'ACTIVE':'BYPASS'}
                 </button>
-                <button onClick={onReset} className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-gray-400 transition-colors"><RotateCcw size={13}/></button>
+                <button onClick={()=>onMove(-1)} disabled={!canMove[0]} title="앞으로 이동" aria-label="앞으로 이동" className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-white disabled:opacity-25 transition-colors"><ChevronRight size={13} className="rotate-180"/></button>
+                <button onClick={()=>onMove(1)} disabled={!canMove[1]} title="뒤로 이동" aria-label="뒤로 이동" className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-white disabled:opacity-25 transition-colors"><ChevronRight size={13}/></button>
+                <button onClick={onReset} title="원래 값으로 (RESET)" aria-label="RESET" className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-white transition-colors"><RotateCcw size={13}/></button>
+                <button onClick={onRemove} title="블록 삭제" aria-label="블록 삭제" className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-red-400 hover:border-red-500/50 transition-colors"><Trash size={13}/></button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -1766,6 +1781,7 @@ function ToneCloudApp() {
   const [showSettingCard,setShowSettingCard]=useState(false);
   const [editingName,setEditingName]=useState(null);   // 이름 변경 중일 때 입력값
   const [confirmDelete,setConfirmDelete]=useState(false);
+  const [showAddBlock,setShowAddBlock]=useState(false);   // 체인 끝 [+] → 카테고리 고르기
   const fileInputRef = useRef(null);
 
   // 블록 RESET 용 원본 체인 (기본 프리셋 + 이후 저장·복제·가져온 프리셋). 새로고침해도 유지되도록 함께 저장
@@ -1902,7 +1918,7 @@ function ToneCloudApp() {
   };
 
   // 프리셋을 바꾸면 이름 편집·삭제 확인 상태는 초기화
-  useEffect(() => { setEditingName(null); setConfirmDelete(false); }, [activeId]);
+  useEffect(() => { setEditingName(null); setConfirmDelete(false); setShowAddBlock(false); }, [activeId]);
   // 삭제 확인 버튼은 3초 안에 다시 누르지 않으면 원래대로
   useEffect(() => { if (!confirmDelete) return; const t = setTimeout(() => setConfirmDelete(false), 3000); return () => clearTimeout(t); }, [confirmDelete]);
 
@@ -1919,11 +1935,44 @@ function ToneCloudApp() {
   const toggleBlockActive = useCallback((blockId) => {
     setPresets(prev=>prev.map(p=>p.id!==activeId?p:{...p,chain:p.chain.map(b=>b.id!==blockId?b:{...b,active:!b.active})}));
   }, [activeId]);
+  // RESET: 원본 모델·값으로 (모델을 바꿨어도 원래 모델로). 원본이 없는 새 블록은 기본값으로
   const resetBlockParams = useCallback((blockId) => {
     const src=originalsRef.current.get(activeId)?.find(b=>b.id===blockId);
-    if (!src) return;
-    setPresets(prev=>prev.map(p=>p.id!==activeId?p:{...p,chain:p.chain.map(b=>b.id!==blockId?b:{...b,params:{...src.params}})}));
+    setPresets(prev=>prev.map(p=>p.id!==activeId?p:{...p,chain:p.chain.map(b=>b.id!==blockId?b
+      :src?{...b,cat:src.cat,model:src.model,params:{...src.params}}:normalizeBlock({...b,params:{}}))}));
   }, [activeId]);
+
+  // ── 블록 편집: 모델 교체 · 추가 · 삭제 · 이동 ──
+  const editChain = fn => setPresets(prev => prev.map(p => p.id !== activeId ? p : { ...p, chain: fn(p.chain) }));
+  // 이름이 같은 파라미터(Gain, Volume …)는 값 유지, 새 모델에만 있는 파라미터는 기본값
+  const changeBlockModel = (blockId, model) => editChain(chain => chain.map(b => b.id !== blockId ? b : normalizeBlock({ ...b, model })));
+  const moveBlock = (blockId, dir) => editChain(chain => {
+    const i = chain.findIndex(b => b.id === blockId), j = i + dir;
+    if (i === -1 || j < 0 || j >= chain.length) return chain;
+    const next = [...chain]; [next[i], next[j]] = [next[j], next[i]]; return next;
+  });
+  // 새 블록은 기기 모듈 순서(PRE → … → RVB)에 맞는 자리에 넣고 바로 노브 패널을 엶
+  const addBlock = cat => {
+    const id = `${active.id}-${cat.toLowerCase()}-${Date.now()}`;
+    const block = normalizeBlock({ id, cat, model: MODEL_DB[cat].models[0].id, active: true, params: {} });
+    const order = b => GP?.modules.indexOf(GP.moduleOf[b.cat]) ?? -1;
+    editChain(chain => {
+      const at = chain.findIndex(b => order(b) > order(block));
+      const next = [...chain]; next.splice(at === -1 ? next.length : at, 0, block); return next;
+    });
+    setShowAddBlock(false); setSelBlockId(id);
+  };
+  const removeBlock = blockId => {
+    const presetId = active.id, idx = active.chain.findIndex(b => b.id === blockId);
+    if (idx === -1) return;
+    const removed = active.chain[idx];
+    setSelBlockId(null);
+    editChain(chain => chain.filter(b => b.id !== blockId));
+    showToast(`${removed.model} 블록 삭제됨`, { label: '되돌리기', onClick: () => setPresets(prev => prev.map(p => {
+      if (p.id !== presetId || p.chain.some(b => b.id === blockId)) return p;
+      const chain = [...p.chain]; chain.splice(Math.min(idx, chain.length), 0, removed); return { ...p, chain };
+    })) });
+  };
 
   const selColor   = selBlock?(FX_COLOR[selBlock.cat]??FX_COLOR.EQ):null;
   const selDbEntry = selBlock?MODEL_DB[selBlock.cat]?.models.find(m=>m.name===selBlock.model||m.id===selBlock.model):null;
@@ -2100,7 +2149,9 @@ function ToneCloudApp() {
       <SlideInPanel block={selBlock} dbEntry={selDbEntry} color={selColor??{border:'#3b82f6',bg:'#0a1628',text:'#60a5fa'}}
         note={selBlock&&cabForcedOff(selBlock)?'앰프 리턴 모드라 이 CAB은 꺼진 것으로 표시돼요. 실제 기기에서도 CAB을 끄거나 No CAB Mode를 ON 하세요.':null}
         onClose={()=>setSelBlockId(null)} onParamChange={(key,val)=>updateParam(selBlock.id,key,val)}
-        onToggleActive={()=>toggleBlockActive(selBlock.id)} onReset={()=>resetBlockParams(selBlock.id)}/>
+        onToggleActive={()=>toggleBlockActive(selBlock.id)} onReset={()=>resetBlockParams(selBlock.id)}
+        onModelChange={m=>changeBlockModel(selBlock.id,m)} onMove={d=>moveBlock(selBlock.id,d)} onRemove={()=>removeBlock(selBlock.id)}
+        canMove={selBlock?[active.chain[0]?.id!==selBlock.id, active.chain[active.chain.length-1]?.id!==selBlock.id]:[false,false]}/>
 
       <ToneCloudHeader presetsLength={presets.length} setShowBrowser={setShowBrowser} setShowExport={setShowExport} fileInputRef={fileInputRef}
         user={user} syncStatus={syncStatus} onSignIn={signIn} onSignOut={signOut} onMenu={()=>setShowDrawer(true)} />
@@ -2194,11 +2245,36 @@ function ToneCloudApp() {
                 <ChainBlock key={block.id} block={block} isSelected={selBlockId===block.id} forcedOff={cabForcedOff(block)}
                   onClick={()=>setSelBlockId(selBlockId===block.id?null:block.id)}/>
               ))}
+              <button onClick={()=>setShowAddBlock(v=>!v)} title="블록 추가" aria-label="블록 추가" aria-expanded={showAddBlock}
+                className={`flex-shrink-0 mr-1 w-10 self-stretch flex items-center justify-center rounded-xl border-2 border-dashed transition-colors ${showAddBlock?'border-blue-500 text-blue-400 bg-blue-900/15':'border-[#383838] text-gray-500 hover:border-blue-500/60 hover:text-blue-400'}`}>
+                <Plus size={16}/>
+              </button>
               <div className="min-w-[58px] p-2 rounded-xl border border-[#383838] bg-[#161616] text-center flex-shrink-0">
                 <div className="w-3.5 h-3.5 rounded-full bg-green-600 mx-auto mb-1 ring-2 ring-green-400/25"/>
                 <div className="text-sm text-gray-400 tracking-widest">OUTPUT</div>
               </div>
             </div>
+            {showAddBlock && (
+              <div className="mt-2.5 rounded-xl border border-[#2a2a2a] bg-[#0d0d0d] p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400 uppercase tracking-widest">추가할 블록 종류</span>
+                  <button onClick={()=>setShowAddBlock(false)} aria-label="닫기" className="text-gray-500 hover:text-white"><X size={13}/></button>
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-1.5">
+                  {Object.entries(MODEL_DB).map(([cat, d]) => {
+                    // 같은 모듈에 이미 켜진 블록이 있으면 표시 (기기는 모듈당 1개만)
+                    const used = active.chain.some(b => b.active && GP?.moduleOf[b.cat] === GP?.moduleOf[cat]);
+                    return (
+                      <button key={cat} onClick={()=>addBlock(cat)} title={used?`${GP.moduleOf[cat]} 모듈을 이미 쓰고 있어요 — 추가하면 하나만 켜야 해요`:undefined}
+                        className="px-2 py-1.5 rounded-lg border text-[11px] font-bold transition-colors hover:brightness-150"
+                        style={{background:d.color.bg,borderColor:`${d.color.border}${used?'25':'55'}`,color:d.color.text,opacity:used?0.5:1}}>
+                        {d.label}{used&&<span className="block text-[9px] font-normal text-gray-500">모듈 사용 중</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {useCab && !hasCab && (
               <div className="mt-2.5 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border bg-blue-900/15 border-blue-500/25 text-blue-300">
                 <span>ℹ️ 이 프리셋에는 CAB 블록이 없어요. 헤드폰·인터페이스로 들으면 소리가 거칠 수 있어요.</span>
@@ -2217,24 +2293,36 @@ function ToneCloudApp() {
             ))}
           </div>
 
-          <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 px-4 md:px-6 py-4">
-            {/* 폰에선 큰 안내 대신 한 줄 힌트 + 한눈에 보이는 블록 목록 */}
-            <div className="hidden md:flex w-16 h-16 rounded-2xl border border-[#383838] items-center justify-center mb-1" style={{background:'#0d0d0d'}}>
-              <Sliders size={28} className="text-gray-500"/>
+          {/* 전체 값 한눈에 보기 — 기기에 입력할 때 블록을 하나씩 열지 않아도 되게 */}
+          <div className="flex-1 px-4 md:px-6 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Sliders size={10} className="text-gray-400 flex-shrink-0"/>
+              <span className="text-xs text-gray-400 uppercase tracking-widest">ALL PARAMETERS</span>
+              <span className="ml-auto text-[11px] text-gray-500">{IS_TOUCH?'탭':'클릭'}하면 노브 패널이 열려요</span>
             </div>
-            <p className="hidden md:block text-gray-300 text-sm font-bold">시그널 체인 블록을 클릭하세요</p>
-            <p className="hidden md:block text-gray-400 text-xs leading-relaxed max-w-xs">우측에서 GP-200JR 스타일 노브 패널이 슬라이드 인 됩니다.<br/>드래그·더블클릭·+/- 버튼으로 값을 조절할 수 있습니다.</p>
-            <p className="md:hidden text-gray-400 text-xs">블록을 탭하면 노브 패널이 열려요</p>
-            <button onClick={()=>setShowBrowser(true)} className="hidden md:flex mt-2 items-center gap-1.5 text-[13px] text-blue-500 hover:text-blue-400 border border-blue-500/20 hover:border-blue-500/40 px-3 py-1.5 rounded-lg transition-colors"><BookOpen size={11}/> GP-200JR 모델 브라우저 열기</button>
-            <div className="md:mt-6 w-full max-w-md">
-              <div className="text-xs text-gray-500 uppercase tracking-widest mb-2">ACTIVE CHAIN</div>
-              <div className="flex flex-wrap justify-center gap-1.5">
-                {active.chain.map(b=>{const c=FX_COLOR[b.cat]??FX_COLOR.EQ;return(
-                  <button key={b.id} onClick={()=>setSelBlockId(b.id)} className="px-2.5 py-1.5 rounded-lg border text-xs font-bold uppercase tracking-wider transition-all hover:scale-105"
-                    style={{background:c.bg,borderColor:`${c.border}40`,color:b.active&&!cabForcedOff(b)?c.text:c.text+'40'}}>{b.model}</button>
-                );})}
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+              {active.chain.map((b, i) => {
+                const c = FX_COLOR[b.cat] ?? FX_COLOR.EQ, on = b.active && !cabForcedOff(b);
+                return (
+                  <button key={b.id} onClick={()=>setSelBlockId(b.id)}
+                    className="text-left rounded-xl border p-3 transition-colors hover:bg-[#121212]"
+                    style={{borderColor:selBlockId===b.id?c.border:`${c.border}30`,background:'#0b0b0b',opacity:on?1:0.45}}>
+                    <div className="flex items-baseline gap-2 mb-1.5">
+                      <span className="text-[11px] text-gray-500">{i + 1}.</span>
+                      <span className="text-[11px] font-black uppercase tracking-wider" style={{color:c.text}}>{FX_LABEL[b.cat] ?? b.cat}</span>
+                      <span className="text-sm font-black text-white truncate">{b.model}</span>
+                      <span className={`ml-auto text-[10px] font-bold flex-shrink-0 ${on?'text-green-400':'text-gray-500'}`}>{on?'ON':cabForcedOff(b)?'AMP RTN':'OFF'}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                      {Object.entries(b.params).map(([k, v]) => (
+                        <span key={k} className="whitespace-nowrap"><span className="text-gray-500">{k}</span> <strong className="text-gray-200">{fmtParamValue(paramSpec(b, k), v)}</strong></span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
+            <button onClick={()=>setShowBrowser(true)} className="mt-4 mx-auto flex items-center gap-1.5 text-[13px] text-blue-500 hover:text-blue-400 border border-blue-500/20 hover:border-blue-500/40 px-3 py-1.5 rounded-lg transition-colors"><BookOpen size={11}/> GP-200JR 모델 브라우저 열기</button>
           </div>
         </main>
       </div>
