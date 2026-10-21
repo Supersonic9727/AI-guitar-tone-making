@@ -831,7 +831,7 @@ function buildReadableText(presets) {
   const lines=[SEP,'  TONE CLOUD GP-200JR  —  PRESET BACKUP',`  Device   : ${DEVICE}  (${FIRMWARE})`,`  Guitar   : ${GUITAR}`,`  Exported : ${date}`,`  Presets  : ${presets.length} patches`,SEP,''];
   presets.forEach((p,idx) => {
     const stars='★'.repeat(p.rating)+'☆'.repeat(5-p.rating);
-    lines.push(`PATCH ${String(idx+1).padStart(2,'0')}  ${p.name}${p.isAI?'  [AI]':''}`);
+    lines.push(`PATCH ${String(idx+1).padStart(2,'0')}  ${p.name}${p.isAI?'  [AI]':''}${p.slot?`  (기기 ${p.slot})`:''}`);
     lines.push(`  Artist  : ${p.artist}${p.song?`  /  "${p.song}"`:''}`);
     lines.push(`  Pickup  : ${p.pickup}   Rating: ${stars}`);
     lines.push(`  Tags    : ${p.tags.map(t=>`#${t}`).join('  ')}`);
@@ -913,6 +913,7 @@ function settingCardText(preset, useCab) {
     `[TONE CLOUD 세팅 카드] ${preset.name}`,
     `아티스트: ${preset.artist}${isRealSong(preset.song) ? ` / 곡: ${preset.song}` : ''}`,
     `기기: ${DEVICE} · 기타: ${GUITAR}`,
+    ...(preset.slot ? [`저장 슬롯: ${preset.slot}`] : []),
     `픽업: ${preset.pickup}`,
     `출력: ${useCab ? 'Direct / Mixer → 기기 No CAB Mode OFF (CAB 사용)' : 'Amp Return → 기기 No CAB Mode ON (또는 CAB 모듈 OFF)'}`,
     '──────────────────────────',
@@ -959,6 +960,7 @@ function SettingCardModal({ preset, useCab, onClose, onToast }) {
         <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3 space-y-3">
           {/* 기기 전체 설정 먼저 */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            {preset.slot && <div className="sm:col-span-2 rounded-lg border border-yellow-500/30 bg-yellow-900/15 px-3 py-2"><span className="text-gray-500">저장 슬롯 </span><strong className="text-yellow-300">{preset.slot}</strong><span className="text-gray-500"> — 입력이 끝나면 SAVE로 이 자리에 저장</span></div>}
             <div className="rounded-lg border border-blue-500/25 bg-blue-900/15 px-3 py-2"><span className="text-gray-500">픽업 </span><strong className="text-blue-300">{preset.pickup}</strong></div>
             <div className={`rounded-lg border px-3 py-2 ${useCab?'border-blue-500/25 bg-blue-900/15':'border-orange-500/30 bg-orange-900/15'}`}>
               <span className="text-gray-500">No CAB Mode </span><strong className={useCab?'text-blue-300':'text-orange-300'}>{useCab?'OFF (Direct/Mixer)':'ON (Amp Return)'}</strong>
@@ -1080,6 +1082,27 @@ function normalizePickup(pk) {
   if (p.includes('neck (1st)') || p.includes('1st') || p.includes('position 5') || p.includes('full neck')) return 'Position 5: Full Neck';
   return pk;
 }
+const PICKUPS = ['Position 1: Full Bridge', 'Position 2: Inner Coils', 'Position 3: Both Humbuckers', 'Position 4: Outer Coils', 'Position 5: Full Neck'];
+
+// 기기 패치 번호: 01-A ~ 64-D (뱅크 64개 × A~D). 01-A~25-D 는 공장 프리셋 자리
+const SLOT_BANKS = 64, SLOT_LETTERS = ['A', 'B', 'C', 'D'], FACTORY_BANKS = 25;
+const makeSlot = (bank, letter) => `${String(bank).padStart(2, '0')}-${letter}`;
+const parseSlot = s => { const m = /^(\d{1,2})-([A-D])$/.exec(s || ''); return m ? { bank: +m[1], letter: m[2] } : null; };
+
+// AI·위저드로 만든 프리셋의 CAB 블록 켜기/끄기 (기본은 끔 — 앰프 리턴 연결 기준)
+const withCab = (preset, on) => ({ ...preset, chain: preset.chain.map(b => b.cat === 'CAB' && b.active !== on ? { ...b, active: on } : b) });
+const cabIsOn = preset => preset.chain.some(b => b.cat === 'CAB' && b.active);
+const CabChoice = ({ preset, onChange }) => preset.chain.some(b => b.cat === 'CAB') && (
+  <div className="flex items-center gap-2">
+    <span className="text-[10px] text-gray-500 font-mono">CAB:</span>
+    <div className="flex gap-1 bg-black/40 p-1 rounded-lg border border-[#1e293b]" role="group" aria-label="CAB 블록 켜기/끄기">
+      {[[false, 'OFF'], [true, 'ON']].map(([on, label]) => (
+        <button key={label} onClick={()=>onChange(withCab(preset, on))} aria-pressed={cabIsOn(preset) === on}
+          className={`px-2.5 h-6 rounded text-[10px] font-black transition-all ${cabIsOn(preset) === on ? (on ? 'bg-blue-600 text-white' : 'bg-orange-600 text-white') : 'text-gray-500 hover:text-gray-300'}`}>{label}</button>
+      ))}
+    </div>
+  </div>
+);
 
 // GenreMapper 룰에 적힌 장비(앰프·드라이브·캐비닛·노이즈게이트·픽업)를 체인에 그대로 반영
 function applyRuleHardware(preset, rule) {
@@ -1186,6 +1209,7 @@ function toneValidator(preset, genres, { gainIdx = 2, brightIdx = 2 } = {}) {
 
 
 // useCab: 화면 하단 OUTPUT MODE — 결과 미리보기에서 CAB 을 꺼진 것으로 보여줄지만 결정
+// (CAB 블록 자체의 ON/OFF 는 결과 화면의 CabChoice 로, 기본 OFF)
 function ToneWizardModal({ onClose, onSave, useCab }) {
   const [step,setStep]=useState(0);
   const [artist,setArtist]=useState(''), [song,setSong]=useState(''), [genres,setGenres]=useState([]);
@@ -1197,7 +1221,7 @@ function ToneWizardModal({ onClose, onSave, useCab }) {
   // 코러스·플랜저·페이저는 기기의 MOD 모듈 하나를 같이 씀 → 하나를 켜면 나머지는 끔
   const MOD_FX=['chorus','flanger','phaser'];
   const toggleFx=f=>setFxOn(p=>p.includes(f)?p.filter(x=>x!==f):[...p.filter(x=>!(MOD_FX.includes(f)&&MOD_FX.includes(x))),f]);
-  const handleGenerate=()=>{ const preset = wizardGenerate({artist,song,genres,gainIdx,brightIdx,spaceIdx,fxOn,delayModel:fxOn.includes('delay')?delayModel:null,reverbModel:fxOn.includes('reverb')?reverbModel:null}); const validatedPreset = toneValidator(preset, genres, {gainIdx,brightIdx}); setResult(validatedPreset); setStep(3); };
+  const handleGenerate=()=>{ const preset = wizardGenerate({artist,song,genres,gainIdx,brightIdx,spaceIdx,fxOn,delayModel:fxOn.includes('delay')?delayModel:null,reverbModel:fxOn.includes('reverb')?reverbModel:null}); const validatedPreset = toneValidator(preset, genres, {gainIdx,brightIdx}); setResult(withCab(validatedPreset, false)); setStep(3); };
   const STEPS=['곡 정보','게인 & 사운드','이펙터','결과'];
   const ChoiceRow=({items,active,onSelect,color='#3b82f6'})=>(
     <div className="flex gap-1.5 flex-wrap">
@@ -1250,7 +1274,7 @@ function ToneWizardModal({ onClose, onSave, useCab }) {
                       style={genres.includes(g)?{background:'#7c3aed22',borderColor:'#8b5cf6',color:'#c4b5fd'}:{background:'#0d0d0d',borderColor:'#1a1a1a',color:'#6b7280'}}>{genres.includes(g)?'✓ ':''}{g}</button>
                   ))}
                 </div>
-                <p className="text-[11px] text-gray-500 mt-2">출력 모드(CAB ON/OFF)는 화면 하단 OUTPUT MODE 설정을 따라요.</p>
+                <p className="text-[11px] text-gray-500 mt-2">CAB 블록은 기본으로 꺼진 채 만들어져요. 결과 화면에서 켤 수 있어요.</p>
               </div>
             </>
           )}
@@ -1311,15 +1335,16 @@ function ToneWizardModal({ onClose, onSave, useCab }) {
                   <span className="text-sm font-bold text-white flex-1 truncate">{result.name}</span>
                   <span className="text-xs bg-purple-600/20 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/30">WIZARD</span>
                 </div>
-                <div className="px-4 py-2.5 text-xs text-gray-400">
-                  <span className="text-gray-500">픽업: </span>{result.pickup}{'  '}<span className="text-gray-500">태그: </span>{result.tags.map(t=>`#${t}`).join(' ')}
+                <div className="px-4 py-2.5 text-xs text-gray-400 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <span><span className="text-gray-500">픽업: </span>{result.pickup}{'  '}<span className="text-gray-500">태그: </span>{result.tags.map(t=>`#${t}`).join(' ')}</span>
+                  <span className="ml-auto"><CabChoice preset={result} onChange={setResult}/></span>
                 </div>
                 <div className="px-4 py-3">
                   <div className="text-sm text-gray-400 uppercase tracking-widest mb-2">시그널 체인 ({result.chain.length} 블록)</div>
                   <div className="flex flex-wrap gap-1.5 items-center">
                     {result.chain.map((b,i)=>{
-                      const c=FX_COLOR[b.cat]??FX_COLOR.EQ, off=!useCab&&b.cat==='CAB';
-                      return <React.Fragment key={i}><div className="px-2 py-1 rounded-lg border text-center min-w-[52px]" title={off?'앰프 리턴 모드: 기기에서 CAB을 끄세요':undefined} style={{background:c.bg,borderColor:`${c.border}40`,opacity:off?0.35:1}}><div className="text-sm font-bold" style={{color:c.text}}>{FX_LABEL[b.cat]}</div><div className="text-[10px] mt-0.5" style={{color:c.text+'99'}}>{b.model}</div></div>{i<result.chain.length-1&&<ChevronRight size={8} className="text-gray-500"/>}</React.Fragment>;
+                      const c=FX_COLOR[b.cat]??FX_COLOR.EQ, off=!b.active||(!useCab&&b.cat==='CAB');
+                      return <React.Fragment key={i}><div className="px-2 py-1 rounded-lg border text-center min-w-[52px]" title={off?'꺼진 블록':undefined} style={{background:c.bg,borderColor:`${c.border}40`,opacity:off?0.35:1}}><div className="text-sm font-bold" style={{color:c.text}}>{FX_LABEL[b.cat]}</div><div className="text-[10px] mt-0.5" style={{color:c.text+'99'}}>{b.model}</div></div>{i<result.chain.length-1&&<ChevronRight size={8} className="text-gray-500"/>}</React.Fragment>;
                     })}
                   </div>
                 </div>
@@ -1346,6 +1371,134 @@ function ToneWizardModal({ onClose, onSave, useCab }) {
   );
 }
 
+
+// ── 프리셋 정보 편집: 이름·아티스트·곡·픽업·태그·기기 저장 슬롯 ──
+function PresetInfoModal({ preset, presets, allTags, onSave, onClose }) {
+  const [name, setName] = useState(preset.name);
+  const [artist, setArtist] = useState(preset.artist ?? '');
+  const [song, setSong] = useState(preset.song ?? '');
+  const [pickup, setPickup] = useState(normalizePickup(preset.pickup ?? ''));
+  const [tags, setTags] = useState(preset.tags ?? []);
+  const [tagInput, setTagInput] = useState('');
+  const initSlot = parseSlot(preset.slot);
+  const [bank, setBank] = useState(initSlot?.bank ?? 0);   // 0 = 지정 안 함
+  const [letter, setLetter] = useState(initSlot?.letter ?? 'A');
+  useEscape(onClose);
+
+  const slot = bank ? makeSlot(bank, letter) : '';
+  const slotOwner = slot && presets.find(p => p.id !== preset.id && p.slot === slot);
+  const addTags = text => {
+    const add = text.split(/[,#\s]+/).map(t => t.trim()).filter(Boolean);
+    if (add.length) setTags(prev => [...prev, ...add.filter(t => !prev.includes(t))]);
+    setTagInput('');
+  };
+  const save = () => {
+    if (!name.trim()) return;
+    // 입력창에 남은 태그도 반영
+    const pending = tagInput.split(/[,#\s]+/).map(t => t.trim()).filter(t => t && !tags.includes(t));
+    onSave({ name: name.trim(), artist: artist.trim(), song: song.trim(), pickup, tags: [...tags, ...pending], slot });
+  };
+  const field = 'w-full bg-[#161616] border border-[#383838] rounded-xl px-3 py-2.5 text-base sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500';
+  const label = 'text-xs text-gray-400 uppercase tracking-widest block mb-1.5';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/75 backdrop-blur-sm" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="w-full sm:max-w-lg max-h-[92dvh] flex flex-col rounded-t-2xl sm:rounded-2xl border border-[#404040] overflow-hidden" style={{background:'#080808'}}>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#303030]">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-blue-600 p-1.5 rounded-lg"><Pencil size={14} className="text-white"/></div>
+            <div className="text-sm font-black text-white">프리셋 정보 편집</div>
+          </div>
+          <button onClick={onClose} aria-label="닫기" className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#404040] text-gray-400 hover:text-white"><X size={14}/></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div>
+            <label className={label}>이름</label>
+            <input autoFocus={!IS_TOUCH} className={field} value={name} maxLength={80} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&save()}/>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className={label}>아티스트</label>
+              <input className={field} value={artist} maxLength={80} placeholder="예: Vaundy" onChange={e=>setArtist(e.target.value)}/>
+            </div>
+            <div>
+              <label className={label}>곡</label>
+              <input className={field} value={song} maxLength={80} placeholder="예: 怪獣の花唄" onChange={e=>setSong(e.target.value)}/>
+            </div>
+          </div>
+
+          <div>
+            <label className={label}>기기 저장 슬롯 <span className="normal-case tracking-normal text-gray-500">— GP-200JR 패치 번호</span></label>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={bank} onChange={e=>setBank(+e.target.value)} aria-label="뱅크 번호"
+                className="bg-[#161616] border border-[#383838] rounded-xl px-3 py-2 text-base sm:text-sm text-gray-200 focus:outline-none focus:border-blue-500">
+                <option value={0}>지정 안 함</option>
+                {[['공장 프리셋 자리', 1, FACTORY_BANKS], ['사용자 자리', FACTORY_BANKS + 1, SLOT_BANKS]].map(([title, from, to]) => (
+                  <optgroup key={title} label={title}>
+                    {Array.from({ length: to - from + 1 }, (_, i) => from + i).map(n => <option key={n} value={n}>{String(n).padStart(2, '0')}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+              <div className={`flex gap-1 ${bank ? '' : 'opacity-30 pointer-events-none'}`} role="group" aria-label="A~D">
+                {SLOT_LETTERS.map(l => (
+                  <button key={l} onClick={()=>setLetter(l)} aria-pressed={letter===l}
+                    className={`w-10 h-10 rounded-xl border text-sm font-black transition-colors ${letter===l?'bg-yellow-500/20 border-yellow-500 text-yellow-300':'border-[#383838] text-gray-500 hover:text-gray-300'}`}>{l}</button>
+                ))}
+              </div>
+              {slot && <span className="text-lg font-black text-yellow-300 font-mono">{slot}</span>}
+            </div>
+            {bank > 0 && bank <= FACTORY_BANKS && <p className="text-[11px] text-gray-500 mt-1.5">01-A~25-D는 공장 프리셋 자리예요. 덮어써도 되지만, 기기에서 공장 프리셋을 초기화하면 원래 톤으로 돌아가요.</p>}
+            {slotOwner && <p className="text-[11px] font-bold text-orange-300 mt-1.5">⚠️ "{slotOwner.name}"도 {slot}로 지정돼 있어요. 저장하면 그 프리셋의 슬롯 지정은 해제돼요.</p>}
+          </div>
+
+          <div>
+            <label className={label}>픽업 <span className="normal-case tracking-normal text-gray-500">— Schecter 5-way</span></label>
+            <div className="grid grid-cols-5 gap-1.5">
+              {PICKUPS.map((pk, i) => {
+                const on = pickup === pk;
+                return (
+                  <button key={pk} onClick={()=>setPickup(pk)} title={pk} aria-pressed={on}
+                    className={`py-2 rounded-xl border text-center transition-colors ${on?'bg-blue-600/20 border-blue-500 text-blue-300':'border-[#383838] text-gray-500 hover:text-gray-300'}`}>
+                    <div className="text-sm font-black">P{i + 1}</div>
+                    <div className="text-[9px] leading-tight px-0.5">{pk.split(': ')[1]}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className={label}>태그</label>
+            <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl border border-[#383838] bg-[#161616] focus-within:border-blue-500">
+              {tags.map(t => (
+                <span key={t} className="flex items-center gap-1 text-xs pl-2 pr-1 py-0.5 rounded-full border border-blue-500/40 bg-blue-900/20 text-blue-300">
+                  #{t}<button onClick={()=>setTags(prev=>prev.filter(x=>x!==t))} aria-label={`${t} 태그 삭제`} className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-blue-600 hover:text-white"><X size={9}/></button>
+                </span>
+              ))}
+              <input value={tagInput} onChange={e=>{ const v = e.target.value; /[,\s]$/.test(v) ? addTags(v) : setTagInput(v); }}
+                onKeyDown={e=>{ if (e.key==='Enter') { e.preventDefault(); addTags(tagInput); } else if (e.key==='Backspace' && !tagInput && tags.length) setTags(prev=>prev.slice(0,-1)); }}
+                placeholder={tags.length ? '' : '입력 후 Enter (예: live, solo)'}
+                className="flex-1 min-w-[120px] bg-transparent text-base sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none px-1"/>
+            </div>
+            {allTags.some(t => !tags.includes(t)) && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {allTags.filter(t => !tags.includes(t)).slice(0, 16).map(t => (
+                  <button key={t} onClick={()=>setTags(prev=>[...prev, t])} className="text-[11px] px-1.5 py-0.5 rounded-full border border-[#383838] text-gray-500 hover:text-gray-200 hover:border-gray-500">+ {t}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-3 px-5 py-4 border-t border-[#303030]">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-[#404040] text-gray-400 hover:text-gray-200 text-xs font-bold">취소</button>
+          <button onClick={save} disabled={!name.trim()} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-30"><Save size={13}/> 저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const SYNC_LABEL = { off:['#6b7280','로컬 저장'], syncing:['#eab308','동기화 중…'], synced:['#22c55e','동기화됨'], error:['#ef4444','동기화 오류'], offline:['#9ca3af','오프라인 · 나중에 동기화'] };
 // ── YouTube 레퍼런스: 원곡 기타 톤을 바로 찾아 듣고 비교 ──
@@ -1422,7 +1575,7 @@ const PresetSidebar = React.memo(({
 }) => {
   const filtered = presets.filter(p => {
     const lq = search.toLowerCase();
-    return (!lq || p.name.toLowerCase().includes(lq) || p.artist.toLowerCase().includes(lq))
+    return (!lq || [p.name, p.artist, p.song, p.slot].some(s => s?.toLowerCase().includes(lq)))
         && (activeTags.length === 0 || activeTags.every(t => p.tags.includes(t)));
   });
 
@@ -1439,7 +1592,7 @@ const PresetSidebar = React.memo(({
         <div className="relative">
           <Search size={11} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
           <input className="w-full bg-[#161616] border border-[#383838] rounded-lg pl-8 pr-3 py-2 text-base md:text-sm text-gray-300 placeholder-gray-500 focus:outline-none focus:border-blue-600 transition-colors"
-            placeholder="SEARCH PRESETS..." value={search} onChange={e=>setSearch(e.target.value)}/>
+            placeholder="이름·아티스트·곡·슬롯 검색" value={search} onChange={e=>setSearch(e.target.value)}/>
         </div>
       </div>
       <div className="p-3 border-b border-[#2a2a2a]">
@@ -1459,7 +1612,7 @@ const PresetSidebar = React.memo(({
               <button key={preset.id} onClick={()=>{setActiveId(preset.id);setSelBlockId(null);onClose?.();}} className={`w-full text-left px-2.5 py-2 rounded-lg transition-all ${isActive?'bg-blue-600/12 border border-blue-500/25':'border border-transparent hover:bg-[#0e0e0e]'}`}>
                 <div className="flex items-start justify-between gap-1">
                   <div className="min-w-0">
-                    <div className={`text-sm font-bold truncate ${isActive?'text-blue-400':'text-gray-300'}`}>{preset.name}</div>
+                    <div className={`text-sm font-bold truncate ${isActive?'text-blue-400':'text-gray-300'}`}>{preset.slot&&<span className="mr-1.5 text-xs font-black text-yellow-400 font-mono">{preset.slot}</span>}{preset.name}</div>
                     <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5 truncate"><Music size={7}/>{preset.artist}</div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
@@ -1491,7 +1644,7 @@ const PresetSidebar = React.memo(({
   for (let i = 0; i < prevProps.presets.length; i++) {
     const p1 = prevProps.presets[i];
     const p2 = nextProps.presets[i];
-    if (p1.id !== p2.id || p1.name !== p2.name || p1.artist !== p2.artist || p1.rating !== p2.rating || p1.isAI !== p2.isAI) {
+    if (p1.id !== p2.id || p1.name !== p2.name || p1.artist !== p2.artist || p1.song !== p2.song || p1.slot !== p2.slot || p1.rating !== p2.rating || p1.isAI !== p2.isAI || p1.tags.join('\n') !== p2.tags.join('\n')) {
       return false;
     }
     if (p1.chain.length !== p2.chain.length) return false;
@@ -1556,9 +1709,11 @@ const ToneCloudFooter = React.memo(({
                 <span className="text-[10px] text-blue-400 font-bold uppercase tracking-wider">추천 픽업</span>
                 <span className="text-xs font-black text-blue-300">{aiPreview.pickup}</span>
               </div>
-              <span className="text-[11px] text-gray-500">Guitar: Schecter Sunset-6 Extreme</span>
+              <span className="hidden md:inline text-[11px] text-gray-500">Guitar: Schecter Sunset-6 Extreme</span>
             </div>
-            
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <CabChoice preset={aiPreview} onChange={setAiPreview}/>
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] text-gray-500 font-mono">5-WAY SELECTOR:</span>
               <div className="flex gap-1 bg-black/40 p-1 rounded-lg border border-[#1e293b]">
@@ -1575,6 +1730,7 @@ const ToneCloudFooter = React.memo(({
                   );
                 })}
               </div>
+            </div>
             </div>
           </div>
           <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -1840,6 +1996,7 @@ function ToneCloudApp() {
   const [toast,setToast]=useState(null);
   const [showDrawer,setShowDrawer]=useState(false);    // 폰: 프리셋 목록 서랍
   const [showSettingCard,setShowSettingCard]=useState(false);
+  const [showInfo,setShowInfo]=useState(false);
   const [editingName,setEditingName]=useState(null);   // 이름 변경 중일 때 입력값
   const [confirmDelete,setConfirmDelete]=useState(false);
   const [showAddBlock,setShowAddBlock]=useState(false);   // 체인 끝 [+] → 카테고리 고르기
@@ -2098,7 +2255,7 @@ function ToneCloudApp() {
         ? `${artist.name} · MusicBrainz 태그 "${matchedTag}" → ${rule.label}`
         : `${artist.name} · 장르 태그 없음 → 기본 톤(${rule.label})`);
     setAiCandidates(null);
-    setAiPreview(preset);
+    setAiPreview(withCab(preset, false));
   };
 
   // 2단계 ② MusicBrainz 검색 → 후보가 있으면 "이 아티스트가 맞나요?" 카드로 확인받기
@@ -2170,9 +2327,18 @@ function ToneCloudApp() {
     setEditingName(null);
   };
   const setRating = s => updateActive({ rating: active.rating === s ? 0 : s });   // 같은 별을 다시 누르면 0점
+  // 기기 슬롯은 패치 하나만 들어가므로, 같은 슬롯을 쓰던 다른 프리셋은 지정 해제
+  const saveInfo = patch => {
+    const changed = ['name', 'artist', 'song', 'pickup', 'slot'].some(k => (active[k] ?? '') !== patch[k]) || active.tags.join('\n') !== patch.tags.join('\n');
+    setShowInfo(false);
+    if (!changed) return;
+    setPresets(prev => prev.map(p => p.id === active.id ? { ...p, ...patch }
+      : patch.slot && p.slot === patch.slot ? { ...p, slot: '' } : p));
+    showToast('프리셋 정보를 저장했어요');
+  };
   const duplicatePreset = () => {
     const id = `${active.id}-copy-${Date.now()}`;
-    const copy = { ...active, id, name: `${active.name} (복사본)`, tags: [...active.tags],
+    const copy = { ...active, id, name: `${active.name} (복사본)`, tags: [...active.tags], slot: '',
       chain: active.chain.map((b, i) => ({ ...b, id: `${id}-${i}`, params: { ...b.params } })) };
     rememberOriginal(copy);
     setPresets(prev => { const i = prev.findIndex(p => p.id === active.id); const next = [...prev]; next.splice(i + 1, 0, copy); return next; });
@@ -2236,6 +2402,7 @@ function ToneCloudApp() {
     <div className="h-screen h-[100dvh] overflow-hidden bg-[#0a0a0a] text-gray-200 flex flex-col" style={{fontFamily:"'Courier New',Courier,monospace"}}>
       {showBrowser && <ModelBrowser onClose={()=>setShowBrowser(false)}/>}
       {showExport  && <ExportModal presets={presets} active={active} onClose={()=>setShowExport(false)}/>}
+      {showInfo && <PresetInfoModal preset={active} presets={presets} allTags={allTags} onSave={saveInfo} onClose={()=>setShowInfo(false)}/>}
       {showSettingCard && <SettingCardModal preset={active} useCab={useCab} onClose={()=>setShowSettingCard(false)} onToast={showToast}/>}
       {showWizard  && <ToneWizardModal useCab={useCab} onClose={()=>setShowWizard(false)} onSave={(preset)=>{rememberOriginal(preset);setPresets(prev=>[preset,...prev]);setActiveId(preset.id);setSelBlockId(null);}}/>}
 
@@ -2279,6 +2446,7 @@ function ToneCloudApp() {
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
+                  {active.slot&&<button onClick={()=>setShowInfo(true)} title="GP-200JR 저장 슬롯" className="flex-shrink-0 px-1.5 py-0.5 rounded-md border border-yellow-500/40 bg-yellow-900/20 text-xs md:text-sm font-black text-yellow-300 font-mono">{active.slot}</button>}
                   {active.isAI&&<Sparkles size={13} className="text-blue-400 flex-shrink-0"/>}
                   {editingName!==null ? (
                     <input autoFocus value={editingName} maxLength={80}
@@ -2305,7 +2473,7 @@ function ToneCloudApp() {
                   ))}
                 </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={()=>setEditingName(active.name)} title="이름 변경" className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#383838] text-[11px] text-gray-400 hover:text-white hover:border-gray-500 transition-colors"><Pencil size={10}/> 이름</button>
+                  <button onClick={()=>setShowInfo(true)} title="이름·아티스트·곡·픽업·태그·저장 슬롯 편집" className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#383838] text-[11px] text-gray-400 hover:text-white hover:border-gray-500 transition-colors"><Pencil size={10}/> 편집</button>
                   <button onClick={duplicatePreset} title="복제" className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#383838] text-[11px] text-gray-400 hover:text-white hover:border-gray-500 transition-colors"><Copy size={10}/> 복제</button>
                   <button onClick={deletePreset} disabled={presets.length<=1} title={presets.length<=1?'마지막 프리셋은 삭제할 수 없어요':'삭제'}
                     className={`flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition-colors disabled:opacity-30 ${confirmDelete?'bg-red-600 border-red-500 text-white font-bold':'border-[#383838] text-gray-400 hover:text-red-400 hover:border-red-500/50'}`}>
@@ -2314,8 +2482,9 @@ function ToneCloudApp() {
                 </div>
               </div>
             </div>
-            <div className="flex flex-wrap gap-1 mt-2.5">
+            <div className="flex flex-wrap items-center gap-1 mt-2.5">
               {active.tags.map(tag=><span key={tag} className="text-xs px-1.5 py-0.5 rounded-full border border-[#1e1e1e] text-gray-400">#{tag}</span>)}
+              {!active.slot&&<button onClick={()=>setShowInfo(true)} className="text-xs px-1.5 py-0.5 rounded-full border border-dashed border-yellow-500/30 text-yellow-500/70 hover:text-yellow-300 hover:border-yellow-500/60">+ 기기 슬롯 지정</button>}
             </div>
           </div>
 
@@ -2366,6 +2535,12 @@ function ToneCloudApp() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+            {useCab && hasCab && !active.chain.some(b => b.cat === 'CAB' && b.active) && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border bg-blue-900/15 border-blue-500/25 text-blue-300">
+                <span>ℹ️ CAB 블록이 꺼져 있어요. 헤드폰·인터페이스로 들으면 켜고, 앰프 리턴에 연결한다면 아래 OUTPUT MODE를 Amp Return으로 두세요.</span>
+                <button onClick={()=>toggleBlockActive(active.chain.find(b => b.cat === 'CAB').id)} className="ml-auto px-2.5 py-1 rounded-md border border-blue-500/50 text-blue-300 hover:bg-blue-600 hover:text-white transition-colors">CAB 켜기</button>
               </div>
             )}
             {useCab && !hasCab && (
