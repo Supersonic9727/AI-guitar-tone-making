@@ -439,10 +439,13 @@ function moduleConflicts(chain) {
   return Object.entries(by).filter(([, list]) => list.length > 1).map(([module, list]) => ({ module, list }));
 }
 
-// 기기 모듈 순서 — 매뉴얼 기본값 PRE → WAH → DST → AMP → NR → CAB → EQ → MOD → DLY → RVB → VOL
-// (기기의 Manage Signal Chain 에서 바꿀 수 있지만, 앱이 만드는 프리셋은 기본 순서를 따름)
+// 체인 순서 — 매뉴얼 기본값 PRE → WAH → DST → AMP → NR → CAB → EQ → MOD → DLY → RVB → VOL 에서
+// VOL 만 DLY 앞으로: EXP 페달로 볼륨을 줄여도 딜레이·리버브 잔향이 자연스럽게 남음 (볼륨 스웰)
+// 앱 블록에는 VOL 이 없어서 블록 정렬은 기본 순서와 같고, VOL 자리는 화면·세팅 카드에 안내로만 표시
+const CHAIN_ORDER = ['PRE', 'WAH', 'DST', 'AMP', 'NR', 'CAB', 'EQ', 'MOD', 'VOL', 'DLY', 'RVB'];
+const CHAIN_ORDER_TEXT = CHAIN_ORDER.join(' → ');
 const blockModule = b => modelSpec(b.cat, b.model)?.module ?? GP?.moduleOf[b.cat] ?? null;
-const moduleRank = b => { const i = GP?.modules.indexOf(blockModule(b)) ?? -1; return i === -1 ? 99 : i; };
+const moduleRank = b => { const i = CHAIN_ORDER.indexOf(blockModule(b)); return i === -1 ? 99 : i; };
 const sortByModule = chain => chain.map((b, i) => [b, i]).sort((x, y) => moduleRank(x[0]) - moduleRank(y[0]) || x[1] - y[1]).map(([b]) => b);
 const isDefaultOrder = chain => chain.every((b, i) => i === 0 || moduleRank(chain[i - 1]) <= moduleRank(b));
 
@@ -755,6 +758,19 @@ const ChainBlock = React.memo(({ block, isSelected, onClick, forcedOff=false }) 
          prev.block.cat === next.block.cat;
 });
 
+// 체인 화면의 VOL 모듈 자리 표시 (프리셋 데이터에는 없는 안내용 블록)
+const VolPedalNode = () => (
+  <div className="flex items-center gap-1 flex-shrink-0">
+    <div title="볼륨 페달(EXP 1)이 조절하는 VOL 모듈 자리 — 딜레이·리버브 앞이라 볼륨을 줄여도 잔향이 남아요"
+      className="min-w-[64px] p-2.5 rounded-xl border-2 border-dashed border-[#404040] text-center">
+      <div className="text-[9px] font-mono font-bold tracking-wider text-gray-500 -mt-1 mb-0.5">VOL</div>
+      <div className="text-sm font-black tracking-widest mb-1 text-gray-400">VOLUME</div>
+      <div className="text-[11px] text-gray-500">EXP 페달</div>
+    </div>
+    <ChevronRight size={10} className="text-gray-500"/>
+  </div>
+);
+
 function ModelBrowser({ onClose }) {
   const [q, setQ] = useState('');
   const [openCat, setOpenCat] = useState(null);
@@ -922,8 +938,9 @@ function ExportModal({ presets, active, onClose }) {
   );
 }
 
-const chainOrderText = chain => isDefaultOrder(chain) ? '기기 기본 순서 그대로 (옮길 필요 없음)'
-  : `순서 변경 필요 → ${chain.map(blockModule).filter((m, i, a) => m && a.indexOf(m) === i).join(' → ')}`;
+const chainOrderText = chain => isDefaultOrder(chain) ? `${CHAIN_ORDER_TEXT} (기기 기본 순서에서 VOL만 DLY 앞으로)`
+  : `순서 변경 필요 → ${chain.map(blockModule).filter((m, i, a) => m && a.indexOf(m) === i).join(' → ')} (VOL은 DLY 앞)`;
+const EXP_TEXT = 'EXP 1 → VOL 모듈 Volume (Patch Settings → EXP Settings에서 확인)';
 
 // ── 실기 세팅 카드: GP-200JR 앞에서 블록별 값을 보며 하나씩 체크하는 체크리스트 ──
 function settingCardText(preset, useCab) {
@@ -935,6 +952,7 @@ function settingCardText(preset, useCab) {
     `픽업: ${preset.pickup}`,
     `출력: ${useCab ? 'Direct / Mixer → 기기 No CAB Mode OFF (CAB 사용)' : 'Amp Return → 기기 No CAB Mode ON (또는 CAB 모듈 OFF)'}`,
     `체인 순서: ${chainOrderText(preset.chain)}`,
+    `볼륨 페달: ${EXP_TEXT}`,
     '──────────────────────────',
   ];
   preset.chain.forEach((b, i) => {
@@ -986,6 +1004,9 @@ function SettingCardModal({ preset, useCab, onClose, onToast }) {
             </div>
             <div className={`sm:col-span-2 rounded-lg border px-3 py-2 ${isDefaultOrder(preset.chain)?'border-[#303030] bg-[#0d0d0d]':'border-yellow-500/30 bg-yellow-900/15'}`}>
               <span className="text-gray-500">체인 순서 </span><strong className={isDefaultOrder(preset.chain)?'text-gray-300':'text-yellow-300'}>{chainOrderText(preset.chain)}</strong>
+            </div>
+            <div className="sm:col-span-2 rounded-lg border border-[#303030] bg-[#0d0d0d] px-3 py-2">
+              <span className="text-gray-500">볼륨 페달 </span><strong className="text-gray-300">{EXP_TEXT}</strong>
             </div>
           </div>
 
@@ -2227,9 +2248,8 @@ function ToneCloudApp() {
   const addBlock = cat => {
     const id = `${active.id}-${cat.toLowerCase()}-${Date.now()}`;
     const block = normalizeBlock({ id, cat, model: MODEL_DB[cat].models[0].id, active: true, params: {} });
-    const order = b => GP?.modules.indexOf(GP.moduleOf[b.cat]) ?? -1;
     editChain(chain => {
-      const at = chain.findIndex(b => order(b) > order(block));
+      const at = chain.findIndex(b => moduleRank(b) > moduleRank(block));
       const next = [...chain]; next.splice(at === -1 ? next.length : at, 0, block); return next;
     });
     setShowAddBlock(false); setSelBlockId(id);
@@ -2340,6 +2360,8 @@ function ToneCloudApp() {
     }));
   };
   const hasCab = active.chain.some(b => b.cat === 'CAB');
+  // VOL(볼륨 페달) 모듈 자리: DLY·RVB 블록 바로 앞 (없으면 맨 끝)
+  const volAt = active.chain.findIndex(b => moduleRank(b) > CHAIN_ORDER.indexOf('VOL'));
 
   // ── 프리셋 관리 ──
   const updateActive = patch => setPresets(prev => prev.map(p => p.id === active.id ? { ...p, ...patch } : p));
@@ -2525,10 +2547,14 @@ function ToneCloudApp() {
                 </div>
                 <ChevronRight size={10} className="text-gray-500"/>
               </div>
-              {active.chain.map(block=>(
-                <ChainBlock key={block.id} block={block} isSelected={selBlockId===block.id} forcedOff={cabForcedOff(block)}
-                  onClick={()=>setSelBlockId(selBlockId===block.id?null:block.id)}/>
+              {active.chain.map((block,i)=>(
+                <React.Fragment key={block.id}>
+                  {i===volAt && <VolPedalNode/>}
+                  <ChainBlock block={block} isSelected={selBlockId===block.id} forcedOff={cabForcedOff(block)}
+                    onClick={()=>setSelBlockId(selBlockId===block.id?null:block.id)}/>
+                </React.Fragment>
               ))}
+              {volAt===-1 && <VolPedalNode/>}
               <button onClick={()=>setShowAddBlock(v=>!v)} title="블록 추가" aria-label="블록 추가" aria-expanded={showAddBlock}
                 className={`flex-shrink-0 mr-1 w-10 self-stretch flex items-center justify-center rounded-xl border-2 border-dashed transition-colors ${showAddBlock?'border-blue-500 text-blue-400 bg-blue-900/15':'border-[#383838] text-gray-500 hover:border-blue-500/60 hover:text-blue-400'}`}>
                 <Plus size={16}/>
@@ -2578,8 +2604,8 @@ function ToneCloudApp() {
             )}
             {!isDefaultOrder(active.chain) && (
               <div className="mt-2.5 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border bg-yellow-900/15 border-yellow-500/30 text-yellow-300">
-                <span>↕️ 기기 기본 순서(PRE → WAH → DST → AMP → NR → CAB → EQ → MOD → DLY → RVB → VOL)와 달라요. 이대로 쓰려면 기기에서도 모듈을 옮겨야 해요 (모듈 선택 후 PARA 길게 → Manage Signal Chain).</span>
-                <button onClick={()=>{ editChain(sortByModule); showToast('기기 기본 순서로 정렬했어요'); }} className="ml-auto px-2.5 py-1 rounded-md border border-yellow-500/50 text-yellow-300 hover:bg-yellow-600 hover:text-white transition-colors">기본 순서로 정렬</button>
+                <span>↕️ 권장 순서({CHAIN_ORDER_TEXT})와 달라요. 이대로 쓰려면 기기에서도 모듈을 옮겨야 해요 (모듈 선택 후 PARA 길게 → Manage Signal Chain).</span>
+                <button onClick={()=>{ editChain(sortByModule); showToast('권장 순서로 정렬했어요'); }} className="ml-auto px-2.5 py-1 rounded-md border border-yellow-500/50 text-yellow-300 hover:bg-yellow-600 hover:text-white transition-colors">권장 순서로 정렬</button>
               </div>
             )}
             {moduleConflicts(active.chain).map(({ module, list }) => (
