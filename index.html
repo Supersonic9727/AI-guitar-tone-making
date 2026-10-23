@@ -319,7 +319,7 @@ const FX_LABEL = Object.fromEntries(Object.entries(MODEL_DB).map(([k,v]) => [k, 
 // ── 실제 기기 파라미터 표(gp200jrModels.js, 펌웨어 V1.7.0) 연결 ─────────────────
 // 모든 블록은 normalizeBlock 을 거쳐 "기기 화면과 같은 파라미터 이름·개수·순서"로 맞춰진다.
 // schema 2 = 이 표에 맞춘 프리셋. 그 이전에 저장된 프리셋은 한 번만 옛 이름/값을 변환(migrate)한다.
-const PARAM_SCHEMA = 3;   // 3: 캐비닛 Low/Hi Cut 을 Hz 로 (사용자 확인 2026-10)
+const PARAM_SCHEMA = 4;   // 3: 캐비닛 Low/Hi Cut 을 Hz 로 (사용자 확인 2026-10) / 4: 블록을 기기 모듈 순서로
 const GP = window.GP200JR ?? null;
 // 기기에 없는 옛 모델 이름 → 가장 가까운 실제 모델
 const MODEL_RENAMES = {
@@ -382,7 +382,13 @@ function normalizeBlock(b, migrate = false) {
 }
 // 저장 형식 버전별 변환
 //  1(없음) → 옛 이름·0~100 값 전부 변환 / 2 → 캐비닛 Low/Hi Cut 만 0~100 숫자로 남아 있어 Hz 로 변환
+//  3 이하 → 앱이 노이즈 게이트(NR)를 맨 앞에 두던 것을 기기 기본 자리(AMP 뒤)로.
+//          사용자가 직접 순서를 바꾼 체인(NR 말고도 순서가 다른 체인)은 그대로 둠
 function normalizeChain(chain, fromSchema) {
+  const out = normalizeChainValues(chain, fromSchema);
+  return fromSchema < 4 && isDefaultOrder(out.filter(b => blockModule(b) !== 'NR')) ? sortByModule(out) : out;
+}
+function normalizeChainValues(chain, fromSchema) {
   return chain.map(b => {
     const nb = normalizeBlock(b, fromSchema < 2);
     if (fromSchema !== 2 || nb.cat !== 'CAB') return nb;
@@ -432,6 +438,13 @@ function moduleConflicts(chain) {
   chain.forEach(b => { const m = modelSpec(b.cat, b.model)?.module; if (m && b.active) (by[m] ??= []).push(b.model); });
   return Object.entries(by).filter(([, list]) => list.length > 1).map(([module, list]) => ({ module, list }));
 }
+
+// 기기 모듈 순서 — 매뉴얼 기본값 PRE → WAH → DST → AMP → NR → CAB → EQ → MOD → DLY → RVB → VOL
+// (기기의 Manage Signal Chain 에서 바꿀 수 있지만, 앱이 만드는 프리셋은 기본 순서를 따름)
+const blockModule = b => modelSpec(b.cat, b.model)?.module ?? GP?.moduleOf[b.cat] ?? null;
+const moduleRank = b => { const i = GP?.modules.indexOf(blockModule(b)) ?? -1; return i === -1 ? 99 : i; };
+const sortByModule = chain => chain.map((b, i) => [b, i]).sort((x, y) => moduleRank(x[0]) - moduleRank(y[0]) || x[1] - y[1]).map(([b]) => b);
+const isDefaultOrder = chain => chain.every((b, i) => i === 0 || moduleRank(chain[i - 1]) <= moduleRank(b));
 
 const INITIAL_PRESETS = [
   {
@@ -724,6 +737,8 @@ const ChainBlock = React.memo(({ block, isSelected, onClick, forcedOff=false }) 
       <button onClick={onClick} title={forcedOff?'앰프 리턴 모드: 기기에서 CAB을 끄세요':undefined}
         style={{background:isSelected?col.bg:'#0d0d0d',borderColor:isSelected?col.border:`${col.border}30`,boxShadow:isSelected?`0 0 12px ${col.border}40`:'none',opacity:on?1:0.35,transform:isSelected?'scale(1.07)':'scale(1)'}}
         className="relative min-w-[72px] p-2.5 rounded-xl border-2 transition-all duration-150 text-center">
+        {/* 기기 화면의 모듈 이름 (PRE · DST · AMP · NR …) */}
+        <div className="text-[9px] font-mono font-bold tracking-wider text-gray-500 -mt-1 mb-0.5">{blockModule(block)}</div>
         <div className="text-sm font-black tracking-widest mb-1 uppercase" style={{color:col.text}}>{FX_LABEL[block.cat]??block.cat}</div>
         <Power size={10} className="mx-auto mb-1" style={{color:on?col.border:'#374151'}}/>
         <div className="text-sm truncate" style={{color:col.text+'aa'}}>{block.model}</div>
@@ -907,6 +922,9 @@ function ExportModal({ presets, active, onClose }) {
   );
 }
 
+const chainOrderText = chain => isDefaultOrder(chain) ? '기기 기본 순서 그대로 (옮길 필요 없음)'
+  : `순서 변경 필요 → ${chain.map(blockModule).filter((m, i, a) => m && a.indexOf(m) === i).join(' → ')}`;
+
 // ── 실기 세팅 카드: GP-200JR 앞에서 블록별 값을 보며 하나씩 체크하는 체크리스트 ──
 function settingCardText(preset, useCab) {
   const lines = [
@@ -916,6 +934,7 @@ function settingCardText(preset, useCab) {
     ...(preset.slot ? [`저장 슬롯: ${preset.slot}`] : []),
     `픽업: ${preset.pickup}`,
     `출력: ${useCab ? 'Direct / Mixer → 기기 No CAB Mode OFF (CAB 사용)' : 'Amp Return → 기기 No CAB Mode ON (또는 CAB 모듈 OFF)'}`,
+    `체인 순서: ${chainOrderText(preset.chain)}`,
     '──────────────────────────',
   ];
   preset.chain.forEach((b, i) => {
@@ -964,6 +983,9 @@ function SettingCardModal({ preset, useCab, onClose, onToast }) {
             <div className="rounded-lg border border-blue-500/25 bg-blue-900/15 px-3 py-2"><span className="text-gray-500">픽업 </span><strong className="text-blue-300">{preset.pickup}</strong></div>
             <div className={`rounded-lg border px-3 py-2 ${useCab?'border-blue-500/25 bg-blue-900/15':'border-orange-500/30 bg-orange-900/15'}`}>
               <span className="text-gray-500">No CAB Mode </span><strong className={useCab?'text-blue-300':'text-orange-300'}>{useCab?'OFF (Direct/Mixer)':'ON (Amp Return)'}</strong>
+            </div>
+            <div className={`sm:col-span-2 rounded-lg border px-3 py-2 ${isDefaultOrder(preset.chain)?'border-[#303030] bg-[#0d0d0d]':'border-yellow-500/30 bg-yellow-900/15'}`}>
+              <span className="text-gray-500">체인 순서 </span><strong className={isDefaultOrder(preset.chain)?'text-gray-300':'text-yellow-300'}>{chainOrderText(preset.chain)}</strong>
             </div>
           </div>
 
@@ -1060,7 +1082,7 @@ function wizardGenerate({ artist, song, genres, gainIdx, brightIdx, spaceIdx, fx
   const name=artist&&song?`Wizard: ${artist} — ${song}`:artist?`Wizard: ${artist} ${gainName}`:`Wizard: ${gainName} / ${BRIGHT_LEVELS[brightIdx]}`;
   // 드라이브 페달은 MODEL_DB 기준 카테고리로 표시 (Revolt 등은 OD가 아니라 DST)
   // 위에서 만든 값(옛 이름·0~100)을 실제 기기 파라미터로 변환 + 밝은 톤이면 앰프 Bright ON
-  const realChain = applyAmpBright(chain.map((b,i)=>normalizeBlock({...b,cat:b.cat==='OD'?(modelCategory(b.model)??'OD'):b.cat,id:`${id}-${i}`}, true)), brightIdx>=3);
+  const realChain = sortByModule(applyAmpBright(chain.map((b,i)=>normalizeBlock({...b,cat:b.cat==='OD'?(modelCategory(b.model)??'OD'):b.cat,id:`${id}-${i}`}, true)), brightIdx>=3));
   return {id,name,artist:artist||'Custom',song:song||'Wizard',tags:[gainName.toLowerCase().replace(' ','-'),...genres.slice(0,3)],pickup:['Neck (1st)','Neck Split (2nd)','Mid (3rd)','Bridge Split (4th)','Bridge HB'][Math.min(gainIdx+1,4)],rating:0,isAI:true,schema:PARAM_SCHEMA,chain:realChain};
 }
 
@@ -1128,7 +1150,7 @@ function applyRuleHardware(preset, rule) {
   if (rule.hasNS) chain.unshift(fromRule({ cat: 'NS', model: 'Gate 1', active: true, params: { Threshold: rule.nsThreshold } }));
 
   chain = applyAmpBright(chain, rule.brightIdx >= 3);
-  return { ...preset, schema: PARAM_SCHEMA, pickup: normalizePickup(rule.pickup), chain: chain.map((b, i) => ({ ...b, id: `${preset.id}-${i}` })) };
+  return { ...preset, schema: PARAM_SCHEMA, pickup: normalizePickup(rule.pickup), chain: sortByModule(chain).map((b, i) => ({ ...b, id: `${preset.id}-${i}` })) };
 }
 
 // gainIdx·brightIdx: 위저드에서 사용자가 직접 고른 값 — 이 값과 반대되는 보정(게인·고음·픽업)은 하지 않음
@@ -2552,6 +2574,12 @@ function ToneCloudApp() {
             {!useCab && hasCab && (
               <div className="mt-2.5 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border bg-orange-900/15 border-orange-500/30 text-orange-300">
                 ⚠️ 앰프 리턴 모드: CAB 블록은 꺼진 것으로 표시돼요. 실제 GP-200JR에서도 CAB 모듈을 끄거나, Global Settings → Input/Output → No CAB Mode를 ON 하세요.
+              </div>
+            )}
+            {!isDefaultOrder(active.chain) && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border bg-yellow-900/15 border-yellow-500/30 text-yellow-300">
+                <span>↕️ 기기 기본 순서(PRE → WAH → DST → AMP → NR → CAB → EQ → MOD → DLY → RVB → VOL)와 달라요. 이대로 쓰려면 기기에서도 모듈을 옮겨야 해요 (모듈 선택 후 PARA 길게 → Manage Signal Chain).</span>
+                <button onClick={()=>{ editChain(sortByModule); showToast('기기 기본 순서로 정렬했어요'); }} className="ml-auto px-2.5 py-1 rounded-md border border-yellow-500/50 text-yellow-300 hover:bg-yellow-600 hover:text-white transition-colors">기본 순서로 정렬</button>
               </div>
             )}
             {moduleConflicts(active.chain).map(({ module, list }) => (
