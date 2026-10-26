@@ -40,7 +40,30 @@
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  <!-- 앱이 그려지기 전까지 보이는 로딩 화면 (React 가 #root 를 채우면 자동으로 사라짐) -->
+  <div id="root">
+    <div id="app-loading" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;font-family:'Courier New',Courier,monospace;color:#9ca3af">
+      <div style="font-weight:900;color:#fff;letter-spacing:-0.02em">TONE CLOUD <span style="color:#3b82f6">GP-200JR</span></div>
+      <div id="app-loading-spin" style="width:22px;height:22px;border:2px solid #333;border-top-color:#3b82f6;border-radius:50%;animation:app-spin 0.8s linear infinite"></div>
+      <div id="app-loading-msg" style="font-size:13px">불러오는 중…</div>
+    </div>
+  </div>
+  <style>@keyframes app-spin { to { transform: rotate(360deg); } }</style>
+  <script>
+    // 라이브러리(CDN)를 못 받았거나 너무 오래 걸리면 검은 화면 대신 안내
+    (function () {
+      function fail(msg) {
+        var el = document.getElementById('app-loading-msg'), spin = document.getElementById('app-loading-spin');
+        if (!el) return;   // 이미 앱이 떴음
+        if (spin) spin.style.display = 'none';
+        el.innerHTML = msg + '<br><br><button onclick="location.reload()" style="padding:8px 16px;border-radius:10px;border:1px solid #3b82f6;background:#1e3a8a;color:#fff;font:inherit;font-weight:700">새로고침</button>';
+      }
+      window.addEventListener('load', function () {
+        if (!window.React || !window.ReactDOM || !window.Babel) fail('앱 구성 파일을 불러오지 못했어요.<br>인터넷 연결을 확인하고 새로고침해 주세요.');
+      });
+      setTimeout(function () { fail('불러오는 데 시간이 오래 걸리고 있어요.<br>인터넷 연결을 확인하고 새로고침해 주세요.'); }, 25000);
+    })();
+  </script>
 
   <script type="text/babel" data-presets="classic-react">
 const { useState, useMemo, useRef, useEffect, useCallback } = React;
@@ -400,7 +423,12 @@ function normalizeChainValues(chain, fromSchema) {
     return { ...nb, params };
   });
 }
-const normalizePreset = p => ({ ...p, schema: PARAM_SCHEMA, chain: normalizeChain(p.chain, p.schema ?? 1) });
+// 태그는 대소문자만 다른 것(metal / Metal)을 하나로 — 먼저 나온 표기를 남김
+function uniqTags(tags) {
+  const seen = new Set();
+  return (tags ?? []).filter(t => { const k = String(t).toLowerCase(); return !seen.has(k) && seen.add(k); });
+}
+const normalizePreset = p => ({ ...p, tags: uniqTags(p.tags), schema: PARAM_SCHEMA, chain: normalizeChain(p.chain, p.schema ?? 1) });
 // 저장 데이터(localStorage·클라우드) 정규화 — 옛 프리셋의 RESET 원본도 같은 규칙으로 변환
 function normalizeSavedState({ presets, originals }) {
   const fromById = new Map(presets.map(p => [p.id, p.schema ?? 1]));
@@ -1104,7 +1132,7 @@ function wizardGenerate({ artist, song, genres, gainIdx, brightIdx, spaceIdx, fx
   // 드라이브 페달은 MODEL_DB 기준 카테고리로 표시 (Revolt 등은 OD가 아니라 DST)
   // 위에서 만든 값(옛 이름·0~100)을 실제 기기 파라미터로 변환 + 밝은 톤이면 앰프 Bright ON
   const realChain = sortByModule(applyAmpBright(chain.map((b,i)=>normalizeBlock({...b,cat:b.cat==='OD'?(modelCategory(b.model)??'OD'):b.cat,id:`${id}-${i}`}, true)), brightIdx>=3));
-  return {id,name,artist:artist||'Custom',song:song||'Wizard',tags:[gainName.toLowerCase().replace(' ','-'),...genres.slice(0,3)],pickup:['Neck (1st)','Neck Split (2nd)','Mid (3rd)','Bridge Split (4th)','Bridge HB'][Math.min(gainIdx+1,4)],rating:0,isAI:true,schema:PARAM_SCHEMA,chain:realChain};
+  return {id,name,artist:artist||'Custom',song:song||'Wizard',tags:uniqTags([gainName.toLowerCase().replace(' ','-'),...genres.slice(0,3)]),pickup:['Neck (1st)','Neck Split (2nd)','Mid (3rd)','Bridge Split (4th)','Bridge HB'][Math.min(gainIdx+1,4)],rating:0,isAI:true,schema:PARAM_SCHEMA,chain:realChain};
 }
 
 // MODEL_DB 에서 모델이 속한 카테고리 찾기 (예: 'Revolt' → 'DST')
@@ -1432,14 +1460,15 @@ function PresetInfoModal({ preset, presets, allTags, onSave, onClose }) {
   const slotOwner = slot && presets.find(p => p.id !== preset.id && p.slot === slot);
   const addTags = text => {
     const add = text.split(/[,#\s]+/).map(t => t.trim()).filter(Boolean);
-    if (add.length) setTags(prev => [...prev, ...add.filter(t => !prev.includes(t))]);
+    if (add.length) setTags(prev => uniqTags([...prev, ...add]));
     setTagInput('');
   };
+  const hasTag = t => tags.some(x => x.toLowerCase() === t.toLowerCase());
   const save = () => {
     if (!name.trim()) return;
     // 입력창에 남은 태그도 반영
     const pending = tagInput.split(/[,#\s]+/).map(t => t.trim()).filter(t => t && !tags.includes(t));
-    onSave({ name: name.trim(), artist: artist.trim(), song: song.trim(), pickup, tags: [...tags, ...pending], slot });
+    onSave({ name: name.trim(), artist: artist.trim(), song: song.trim(), pickup, tags: uniqTags([...tags, ...pending]), slot });
   };
   const field = 'w-full bg-[#161616] border border-[#383838] rounded-xl px-3 py-2.5 text-base sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500';
   const label = 'text-xs text-gray-400 uppercase tracking-widest block mb-1.5';
@@ -1524,9 +1553,9 @@ function PresetInfoModal({ preset, presets, allTags, onSave, onClose }) {
                 placeholder={tags.length ? '' : '입력 후 Enter (예: live, solo)'}
                 className="flex-1 min-w-[120px] bg-transparent text-base sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none px-1"/>
             </div>
-            {allTags.some(t => !tags.includes(t)) && (
+            {allTags.some(t => !hasTag(t)) && (
               <div className="flex flex-wrap gap-1 mt-2">
-                {allTags.filter(t => !tags.includes(t)).slice(0, 16).map(t => (
+                {allTags.filter(t => !hasTag(t)).slice(0, 16).map(t => (
                   <button key={t} onClick={()=>setTags(prev=>[...prev, t])} className="text-[11px] px-1.5 py-0.5 rounded-full border border-[#383838] text-gray-500 hover:text-gray-200 hover:border-gray-500">+ {t}</button>
                 ))}
               </div>
@@ -1619,7 +1648,7 @@ const PresetSidebar = React.memo(({
   const filtered = presets.filter(p => {
     const lq = search.toLowerCase();
     return (!lq || [p.name, p.artist, p.song, p.slot].some(s => s?.toLowerCase().includes(lq)))
-        && (activeTags.length === 0 || activeTags.every(t => p.tags.includes(t)));
+        && (activeTags.length === 0 || activeTags.every(t => p.tags.some(x => x.toLowerCase() === t.toLowerCase())));
   });
 
   // md(768px) 미만: 왼쪽에서 열리는 서랍 / 이상: 항상 보이는 사이드바
@@ -2220,7 +2249,7 @@ function ToneCloudApp() {
 
   const active   = presets.find(p=>p.id===activeId)??presets[0];
   const selBlock = active?.chain.find(b=>b.id===selBlockId)??null;
-  const allTags  = [...new Set(presets.flatMap(p=>p.tags))];
+  const allTags  = uniqTags(presets.flatMap(p=>p.tags));   // metal / Metal 은 하나로
 
   const updateParam = useCallback((blockId,key,value) => {
     setPresets(prev=>prev.map(p=>p.id!==activeId?p:{...p,chain:p.chain.map(b=>b.id!==blockId?b:{...b,params:{...b.params,[key]:value}})}));
@@ -2290,7 +2319,14 @@ function ToneCloudApp() {
       reverbModel: null,
     });
     // 룰에 정의된 장비를 최종값으로 반영 (toneValidator 로 다시 덮어쓰지 않음)
-    const preset = applyRuleHardware({ ...base, id: `ai-${Date.now()}`, isAI: true }, rule);
+    // 이름: "Metallica · Thrash Metal" / 장르만 입력했으면 "AI · Metal" — 실제로 걸린 태그 기준
+    // (룰 라벨에 같은 이름이 있으면 그 표기 그대로: R&B, J-Pop …)
+    const mt = (matchedTag ?? '').toLowerCase();
+    const segs = rule.label.replace(/[()]/g, '/').split('/').map(s => s.trim()).filter(Boolean);
+    const style = !matched ? '기본 톤'
+      : segs.find(s => s.toLowerCase() === mt) ?? mt.replace(/(^|[\s-])([a-z])/g, (m, a, c) => a + c.toUpperCase());
+    const name = `${artist?.name ?? 'AI'} · ${style}`;
+    const preset = applyRuleHardware({ ...base, id: `ai-${Date.now()}`, name, isAI: true }, rule);
     setAiNote(!artist
       ? `입력어 "${matchedTag}"로 장르 판단 → ${rule.label}`
       : matched
@@ -2306,7 +2342,10 @@ function ToneCloudApp() {
     if (!query) return;
     setAiLoading(true); setAiError(null); setAiCandidates(null);
     try {
-      const res = await fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(query)}&fmt=json&limit=5`);
+      const url = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(query)}&fmt=json&limit=5`;
+      let res = await fetch(url);
+      // 503 = 요청이 잦음 (MusicBrainz 는 초당 1회 제한) → 잠깐 기다렸다가 한 번만 다시
+      if (res.status === 503) { await new Promise(r => setTimeout(r, 1500)); res = await fetch(url); }
       if (!res.ok) {
         setAiError(res.status === 503
           ? 'MusicBrainz 요청이 너무 잦아요. 1~2초 뒤에 다시 시도해주세요.'
@@ -2420,7 +2459,8 @@ function ToneCloudApp() {
       const incoming = parseImportedPresets(await file.text());
       const existing = new Set(presets.map(presetSignature));
       const ids = new Set(presets.map(p => p.id));
-      const added = []; let skipped = 0;
+      const slots = new Set(presets.map(p => p.slot).filter(Boolean));
+      const added = []; let skipped = 0, slotCleared = 0;
       for (const p of incoming) {
         const sig = presetSignature(p);
         if (existing.has(sig)) { skipped++; continue; }
@@ -2430,11 +2470,14 @@ function ToneCloudApp() {
           const id = `${p.id}-imp-${Date.now()}-${added.length}`;
           preset = { ...p, id, chain: p.chain.map((b, i) => ({ ...b, id: `${id}-${i}` })) };
         }
+        // 기기 슬롯은 패치 하나만 — 이미 쓰는 슬롯이면 가져온 쪽의 지정을 해제 (형식이 이상한 값도)
+        if (preset.slot && (slots.has(preset.slot) || !parseSlot(preset.slot))) { preset = { ...preset, slot: '' }; slotCleared++; }
+        if (preset.slot) slots.add(preset.slot);
         ids.add(preset.id); added.push(preset); rememberOriginal(preset);
       }
       if (added.length) { setPresets(prev => [...added, ...prev]); setActiveId(added[0].id); setSelBlockId(null); }
       showToast(added.length
-        ? `${added.length}개 프리셋을 가져왔어요${skipped ? ` (이미 있는 ${skipped}개는 건너뜀)` : ''}`
+        ? `${added.length}개 프리셋을 가져왔어요${skipped ? ` (이미 있는 ${skipped}개는 건너뜀)` : ''}${slotCleared ? ` · 겹치거나 잘못된 슬롯 ${slotCleared}개는 지정 해제` : ''}`
         : `새로 가져올 프리셋이 없어요 (${skipped}개 모두 이미 있음)`);
     } catch (err) {
       showToast(`⚠️ ${err.message}`);
