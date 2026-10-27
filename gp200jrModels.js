@@ -163,8 +163,9 @@ add('NR', 'Gate', 'Gate 3', K('Threshold', 'Ratio', 'Attack', 'Release', 'Hold',
 autoSwell('NR');
 
 // ── CAB (모든 캐비닛 공통 파라미터) ─────────────────────────────────────────
-// 사용자 확인(2026-10): Low Cut 0~2000Hz, Hi Cut 0~2000Hz (Hi Cut 0Hz = 자르지 않음으로 해석 — 소리로 확인 필요)
-const CAB = [...K('Volume'), R('Low Cut', 0, 2000, 'Hz'), R('Hi Cut', 0, 2000, 'Hz', { offAtZero: true, verify: true })];
+// 사용자 확인(2026-10): Low Cut 0~2000Hz, Hi Cut 0~2000Hz
+// Hi Cut 0Hz = 고음을 깎지 않음 (OFF) — 실기에서 소리로 확인
+const CAB = [...K('Volume'), R('Low Cut', 0, 2000, 'Hz'), R('Hi Cut', 0, 2000, 'Hz', { offAtZero: true })];
 const cabs = {
   'SUP ZEP': '1x6 Supro', 'TWD CP': '1x8 Fender Champ', 'TWD PRC': '1x10 Fender Princeton', 'TWD SUP': '2x10 Fender Tweed',
   'TWD LUX': '1x12 Fender Tweed Deluxe', 'Dark LUX': '1x12 Fender Deluxe', 'Dark VIT': '1x12 Fender Vibrolux',
