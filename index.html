@@ -16,8 +16,8 @@
       ]
     });
   </script>
-  <script src="./genreMapper.js?v=3"></script>
-  <script src="./gp200jrModels.js?v=4"></script>
+  <script src="./genreMapper.js?v=5"></script>
+  <script src="./gp200jrModels.js?v=5"></script>
   <!-- Firebase (구글 로그인 + Firestore 클라우드 동기화). 로딩에 실패해도 앱은 로컬 저장으로 동작 -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -114,6 +114,8 @@ const RotateCcw    = _svg([_pl('1 4 1 10 7 10'), _p('M3.51 15a9 9 0 1 0 .49-3.36
 const Upload       = _svg([_p('M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'), _pl('17 8 12 3 7 8'), _l(12,3,12,15)]);
 const Pencil       = _svg([_p('M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z')]);
 const Copy         = _svg([_p('M9 9h11v11H9z'), _p('M5 15H4V4h11v1')]);
+const Undo         = _svg([_p('M9 14 4 9l5-5'), _p('M4 9h10.5a5.5 5.5 0 0 1 0 11H11')]);
+const Redo         = _svg([_p('m15 14 5-5-5-5'), _p('M20 9H9.5a5.5 5.5 0 0 0 0 11H13')]);
 const Trash        = _svg([_pl('3 6 5 6 21 6'), _p('M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6'), _p('M10 11v6'), _p('M14 11v6')]);
 
 const MODEL_DB = { // (was export const)
@@ -316,6 +318,16 @@ const MODEL_DB = { // (was export const)
       { id:'Step Filter',name:'Step Filter',base:'4-Step Auto Filter',      desc:'4단계 오토 필터' },
     ],
   },
+  // 기기의 WAH 모듈 — EXP 페달로 밟는 페달 와우 (위의 WAH / FILTER 는 PRE 모듈의 자동 필터)
+  PWAH: {
+    label: 'WAH PEDAL', color: { border:'#eab308', bg:'#1a1500', text:'#facc15' },
+    models: [
+      { id:'V-Wah', name:'V-Wah', base:'VOX V846',               desc:'최초의 와우 페달 계열, 중고역 위주의 좁은 스윕' },
+      { id:'C-Wah', name:'C-Wah', base:'Dunlop Cry Baby',        desc:'60년대 전통 와우, 저~중역 스윕·중립적인 음색' },
+      { id:'S-Wah', name:'S-Wah', base:'Classic Wah',            desc:'지미 헨드릭스 시절의 보컬 같은 클래식 와우' },
+      { id:'P-Wah', name:'P-Wah', base:'John Petrucci Rack Wah', desc:'Cry Baby + 6밴드 EQ, 세밀한 음색 조절' },
+    ],
+  },
   PIT: {
     label: 'PITCH', color: { border:'#ec4899', bg:'#1c0512', text:'#f472b6' },
     models: [
@@ -335,6 +347,85 @@ const MODEL_DB = { // (was export const)
     ],
   },
 };
+
+// 기기 표(gp200jrModels.js)에는 있지만 위 목록에 없던 기타용 모델 — 매뉴얼 Effect List 설명 기준
+// (베이스용·SnapTone·User IR 3~20 은 기타 톤에 쓰지 않아 제외)
+const EXTRA_MODELS = {
+  AMP: [
+    ['Bellman 59B', "Fender '59 Bassman", '트위드 크런치의 원조, 따뜻하고 굵은 드라이브'],
+    ['SUPDual OD', 'Supro Dual-Tone 1624T (Dirty)', '볼륨을 올리면 두껍게 압축된 빈티지 그라인드'],
+    ['L-Star OD', 'Mesa/Boogie Lone Star (CH2)', '부드럽고 노래하는 부티크 드라이브'],
+    ['BogSV OD', 'Bogner Shiva (CH2)', '따뜻하고 탄탄한 하이게인 직전 드라이브'],
+    ['Bog BlueM', 'Bogner XTC Blue', '플렉시 느낌의 클래식 록 사운드'],
+    ['Bog RedM', 'Bogner XTC Red', '뜨거운 하이게인 디스토션'],
+    ['Z38 OD', 'Dr. Z Maz 38 Sr. (Clean)', '반응이 빠른 부티크 클린~크런치'],
+    ['Knights CL', 'Grindrod Pendragon PG20C (Normal)', '맑고 힘 있는 브리티시 클린'],
+    ['Knights CL+', 'Grindrod Pendragon PG20C (Normal, Bright)', '브리티시 클린에 밝기를 더함'],
+    ['Knights OD', 'Grindrod Pendragon PG20C (Drive)', '뚫고 나오는 브리티시 오버드라이브'],
+    ['Bad-KT CL', 'Bad Cat Hot Cat 30 (Clean)', '클래스 A, 배음이 풍부하고 헤드룸 넉넉한 클린'],
+    ['Solo100 CL', 'Soldano SLO100 (Clean)', '스티브 바이·EVH 브라운 사운드 앰프의 클린'],
+    ['Solo100 OD', 'Soldano SLO100 (Crunch)', '탄탄한 크런치'],
+    ['Solo100 LD', 'Soldano SLO100 (Overdrive)', '부드럽게 서스테인되는 리드 톤'],
+    ['UK 45+', 'Marshall JTM45', '60년대 플렉시, 록 사운드의 기초'],
+    ['UK 45JP', 'Marshall JTM45 (Jumped)', '두 채널을 연결한 더 두꺼운 플렉시'],
+    ['UK 50+', 'Marshall JMP50', 'JTM45보다 힘이 세진 플렉시 드라이브'],
+    ['UK 50JP', 'Marshall JMP50 (Jumped)', '채널 연결로 더 꽉 찬 플렉시'],
+    ['Flagman+ 1', 'Friedman Brown Eye (HBE)', '모던 브리티시 하이게인'],
+    ['Flagman+ 2', 'Friedman Brown Eye (HBE)', '모던 브리티시 하이게인 (다른 스위치 설정)'],
+    ['Mess2C+ 2', 'Mesa/Boogie Mark IIC+ (Lead)', '메탈리카·드림시어터의 클래식 메탈 리드'],
+    ['Mess 2C+ 3', 'Mesa/Boogie Mark IIC+ (Lead)', 'Mark IIC+ 리드 (다른 스위치 설정)'],
+    ['Mess4 LD 2', 'Mesa/Boogie Mark IV (Lead 2)', '밀도 높은 하이게인 리드'],
+    ['Mess4 LD 3', 'Mesa/Boogie Mark IV (Lead 3)', '더 공격적인 Mark IV 리드'],
+    ['Juice R100', 'Orange Rockerverb 100 (Dirty)', '두껍고 따뜻한 오렌지 하이게인'],
+    ['Eagle 120+', 'ENGL Savage 120', '새비지 120 변형, 다이나믹이 살아 있는 메탈 톤'],
+    ['Power LD', 'ENGL Powerball II (CH4)', '단단한 저음과 정밀한 모던 메탈'],
+    ['Dizz VH S', 'Diezel VH4', 'VH4 변형'],
+    ['Dizz VH+', 'Diezel VH4', 'VH4 변형'],
+    ['Dizz VH+ S', 'Diezel VH4', 'VH4 변형'],
+    ['AC Pre 2', 'AER Colourizer 2', '어쿠스틱 프리앰프'],
+  ],
+  OD: [
+    ['Scream OD', 'Ibanez Tube Screamer 계열', '튜브스크리머 + Fat·Air 스위치'],
+    ['Flex OD', 'Guitar/Bass Drive', 'Normal·Scoop·Edge 3가지 모드의 드라이브'],
+  ],
+  CHO: [
+    ['V-Roto', 'BBD Vibrato Pedal', '아날로그 비브라토'],
+    ['G-Roto', 'Late-70s Ensemble Chorus (Vibrato)', '빈티지 앙상블 비브라토'],
+    ['Vibrato', 'Classic Vibrato', '범위가 넓은 클래식 비브라토'],
+    ['Vibrato T', 'Sensitive Vibrato', '세기에 반응하는 비브라토'],
+    ['Detune', 'Detune', '살짝 어긋난 피치를 섞은 코러스 같은 두께감'],
+  ],
+  PHS: [
+    ['Vibe', 'Shin-Ei Uni-Vibe', '헨드릭스·SRV의 출렁이는 바이브'],
+    ['Pan Phase', 'Phaser + Tremolo/Pan', '트레몰로·팬이 섞인 페이저'],
+  ],
+  DLY: [
+    ['Tube', 'Tube Echo', '튜브 에코'],
+    ['Sweet Echo', 'Analog Delay', '따뜻한 아날로그 딜레이'],
+    ['999 Echo', "80's Rack Delay", '80년대 랙 딜레이'],
+    ['Ring Echo', 'Tape Echo', '테이프 에코'],
+    ['M-Echo', 'Analog Delay (1981~84)', '따뜻하고 자연스러운 아날로그 딜레이'],
+    ['Vintage Rack', 'Lo-fi Rack Delay', '거칠게 깎인 로파이 반복음'],
+    ['Rev Echo', 'Reverse Echo', '리버스 에코'],
+    ['Dual Echo', 'Dual Delay', '좌우 2개 딜레이'],
+  ],
+  RVB: [
+    ['Amp Spring', 'Combo Amp Spring Reverb', '콤보 앰프에 들어 있는 스프링 리버브'],
+  ],
+  PIT: [
+    ['P-Bend', 'Polyphonic Pitch Bend', '폴리포닉 피치 시프터'],
+    ['Harmonizer 2', 'Dual-voice Harmonizer', '2성부 자동 하모나이저'],
+  ],
+  SPX: [
+    ['AC Refiner', 'Acoustic Refiner', '어쿠스틱 기타를 더 자연스러운 우드 톤으로'],
+    ['AC Sim', 'Acoustic Simulator', '일렉 기타를 어쿠스틱처럼 (Standard·Jumbo·Enhanced·Piezo)'],
+    ['Hold', 'Hold', '누르는 동안 소리 붙잡기'],
+    ['Freeze', 'Freeze', '소리를 얼려 길게 유지'],
+  ],
+};
+for (const [cat, list] of Object.entries(EXTRA_MODELS))
+  for (const [name, base, desc] of list)
+    if (!MODEL_DB[cat].models.some(m => m.name === name)) MODEL_DB[cat].models.push({ id: name, name, base, desc });
 
 const FX_COLOR = Object.fromEntries(Object.entries(MODEL_DB).map(([k,v]) => [k, v.color]));
 const FX_LABEL = Object.fromEntries(Object.entries(MODEL_DB).map(([k,v]) => [k, v.label]));
@@ -617,7 +708,7 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', 
       && prev.min === next.min && prev.max === next.max && prev.unit === next.unit && prev.offAtZero === next.offAtZero;
 });
 
-function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleActive, onReset, note, onModelChange, onMove, onRemove, canMove = [false, false] }) {
+function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleActive, onReset, onUndo, note, onModelChange, onMove, onRemove, canMove = [false, false] }) {
   const isOpen = !!block;
   const spec = block ? modelSpec(block.cat, block.model) : null;
   useEscape(onClose, isOpen);
@@ -669,6 +760,7 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
                 </button>
                 <button onClick={()=>onMove(-1)} disabled={!canMove[0]} title="앞으로 이동" aria-label="앞으로 이동" className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-white disabled:opacity-25 transition-colors"><ChevronRight size={13} className="rotate-180"/></button>
                 <button onClick={()=>onMove(1)} disabled={!canMove[1]} title="뒤로 이동" aria-label="뒤로 이동" className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-white disabled:opacity-25 transition-colors"><ChevronRight size={13}/></button>
+                <button onClick={onUndo} disabled={!onUndo} title="방금 바꾼 것 되돌리기 (Ctrl+Z)" aria-label="되돌리기" className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-white disabled:opacity-25 transition-colors"><Undo size={13}/></button>
                 <button onClick={onReset} title="원래 값으로 (RESET)" aria-label="RESET" className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-white transition-colors"><RotateCcw size={13}/></button>
                 <button onClick={onRemove} title="블록 삭제" aria-label="블록 삭제" className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#1e1e1e] text-gray-400 hover:text-red-400 hover:border-red-500/50 transition-colors"><Trash size={13}/></button>
               </div>
@@ -2040,6 +2132,8 @@ function stampPresetChanges(prev, next, deleted, now = Date.now()) {
   });
 }
 
+const UNDO_LIMIT = 100;
+
 function ToneCloudApp() {
   // 저장된 프리셋을 불러오면서 옛 형식은 실제 기기 파라미터로 변환 (한 번만)
   const saved = useMemo(() => { const s = loadSaved(); return s ? { ...s, ...normalizeSavedState(s) } : null; }, []);
@@ -2047,9 +2141,18 @@ function ToneCloudApp() {
   // 삭제 기록 (동기화용) — 다른 기기에서 지운 프리셋이 되살아나지 않게
   const deletedRef = useRef(saved?.deleted ?? {});
   // 앱 안에서 프리셋을 바꾸면 자동으로 수정 시각·삭제 기록을 남김 (클라우드에서 받은 변경은 setPresetsRaw 로 그대로)
+  // 실행 취소 기록: 바꾸기 직전 목록을 최대 100개까지. 노브를 계속 돌리는 동안(0.7초 안의 연속 변경)은 한 번으로 묶음
+  const undoRef = useRef([]), redoRef = useRef([]), lastEditRef = useRef(0);
   const setPresets = useCallback(update => setPresetsRaw(prev => {
     const next = typeof update === 'function' ? update(prev) : update;
-    return next === prev ? prev : stampPresetChanges(prev, next, deletedRef.current);
+    if (next === prev) return prev;
+    const now = Date.now(), undo = undoRef.current;
+    if (now - lastEditRef.current > 700 && undo[undo.length - 1] !== prev) {
+      undo.push(prev);
+      if (undo.length > UNDO_LIMIT) undo.shift();
+    }
+    lastEditRef.current = now; redoRef.current = [];
+    return stampPresetChanges(prev, next, deletedRef.current);
   }), []);
   const [activeId,setActiveId]=useState(()=>saved?.activeId ?? '1');
   const [selBlockId,setSelBlockId]=useState(null);
@@ -2134,6 +2237,8 @@ function ToneCloudApp() {
     if (syncKey(latest) !== localKey) {
       const list = latest.presets.length ? latest.presets : INITIAL_PRESETS;   // 전부 지워진 경우 앱이 비지 않게
       remoteApplyRef.current = true;   // 반영으로 생긴 변경은 다시 올리지 않음
+      // 다른 기기의 변경이 들어오면 실행 취소 기록은 비움 (되돌리다 그 변경까지 지우지 않게)
+      undoRef.current = []; redoRef.current = [];
       setPresetsRaw(list);
       setActiveId(id => list.some(p => p.id === id) ? id : list[0].id);
     }
@@ -2266,6 +2371,34 @@ function ToneCloudApp() {
 
   // ── 블록 편집: 모델 교체 · 추가 · 삭제 · 이동 ──
   const editChain = fn => setPresets(prev => prev.map(p => p.id !== activeId ? p : { ...p, chain: fn(p.chain) }));
+
+  // ── 실행 취소 / 다시 실행 (Ctrl+Z / Ctrl+Shift+Z·Ctrl+Y) ──
+  // 되돌린 결과도 새 수정으로 기록돼서 다른 기기에 동기화됨
+  const stepHistory = (from, to, label) => {
+    if (!from.current.length) return;
+    const target = from.current.pop();
+    to.current.push(presetsRef.current);
+    lastEditRef.current = 0;   // 되돌린 직후 수정은 새 기록으로
+    setPresetsRaw(prev => stampPresetChanges(prev, target, deletedRef.current));
+    setActiveId(id => target.some(p => p.id === id) ? id : target[0].id);
+    showToast(`${label} (남은 ${from.current.length})`);
+  };
+  const undo = () => stepHistory(undoRef, redoRef, '되돌렸어요');
+  const redo = () => stepHistory(redoRef, undoRef, '다시 실행했어요');
+  const undoKeysRef = useRef(null); undoKeysRef.current = { undo, redo };
+  useEffect(() => {
+    const onKey = e => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;   // 글자 입력의 되돌리기는 브라우저에 맡김
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undoKeysRef.current.undo(); }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); undoKeysRef.current.redo(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const canUndo = undoRef.current.length > 0, canRedo = redoRef.current.length > 0;
   // 이름이 같은 파라미터(Gain, Volume …)는 값 유지, 새 모델에만 있는 파라미터는 기본값
   const changeBlockModel = (blockId, model) => editChain(chain => chain.map(b => b.id !== blockId ? b : normalizeBlock({ ...b, model })));
   const moveBlock = (blockId, dir) => editChain(chain => {
@@ -2433,8 +2566,8 @@ function ToneCloudApp() {
     if (!confirmDelete) { setConfirmDelete(true); return; }   // 첫 클릭은 확인 단계
     const i = presets.findIndex(p => p.id === active.id);
     const next = presets.filter(p => p.id !== active.id);
+    // RESET 원본은 지우지 않음 (실행 취소로 되살릴 때 필요 — 저장은 남은 프리셋 것만)
     const removed = active, removedOriginal = originalsRef.current.get(active.id);
-    originalsRef.current.delete(active.id);
     setPresets(next);
     setActiveId(next[Math.min(i, next.length - 1)].id); setSelBlockId(null);
     // 되돌리기: 원래 자리·RESET 원본까지 복원
@@ -2494,9 +2627,10 @@ function ToneCloudApp() {
       {showWizard  && <ToneWizardModal useCab={useCab} onClose={()=>setShowWizard(false)} onSave={(preset)=>{rememberOriginal(preset);setPresets(prev=>[preset,...prev]);setActiveId(preset.id);setSelBlockId(null);}}/>}
 
       <SlideInPanel block={selBlock} dbEntry={selDbEntry} color={selColor??{border:'#3b82f6',bg:'#0a1628',text:'#60a5fa'}}
-        note={selBlock&&cabForcedOff(selBlock)?'앰프 리턴 모드라 이 CAB은 꺼진 것으로 표시돼요. 실제 기기에서도 CAB을 끄거나 No CAB Mode를 ON 하세요.':null}
+        note={selBlock&&cabForcedOff(selBlock)?'앰프 리턴 모드라 이 CAB은 꺼진 것으로 표시돼요. 실제 기기에서도 CAB을 끄거나 No CAB Mode를 ON 하세요.'
+          :selBlock?.cat==='PWAH'?'EXP 페달로 와우를 밟으려면 기기의 Patch Settings → EXP Settings에서 WAH의 Position을 페달에 지정하세요. 볼륨 페달과 같이 쓰면 EXP 1 A/B로 나눠 지정해요.':null}
         onClose={()=>setSelBlockId(null)} onParamChange={(key,val)=>updateParam(selBlock.id,key,val)}
-        onToggleActive={()=>toggleBlockActive(selBlock.id)} onReset={()=>resetBlockParams(selBlock.id)}
+        onToggleActive={()=>toggleBlockActive(selBlock.id)} onReset={()=>resetBlockParams(selBlock.id)} onUndo={canUndo?undo:null}
         onModelChange={m=>changeBlockModel(selBlock.id,m)} onMove={d=>moveBlock(selBlock.id,d)} onRemove={()=>removeBlock(selBlock.id)}
         canMove={selBlock?[active.chain[0]?.id!==selBlock.id, active.chain[active.chain.length-1]?.id!==selBlock.id]:[false,false]}/>
 
@@ -2560,6 +2694,8 @@ function ToneCloudApp() {
                   ))}
                 </div>
                 <div className="flex items-center gap-1">
+                  <button onClick={undo} disabled={!canUndo} title="되돌리기 (Ctrl+Z)" aria-label="되돌리기" className="flex items-center px-2 py-1 rounded-md border border-[#383838] text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-30 disabled:hover:text-gray-400"><Undo size={12}/></button>
+                  <button onClick={redo} disabled={!canRedo} title="다시 실행 (Ctrl+Shift+Z)" aria-label="다시 실행" className="flex items-center px-2 py-1 rounded-md border border-[#383838] text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-30 disabled:hover:text-gray-400"><Redo size={12}/></button>
                   <button onClick={()=>setShowInfo(true)} title="이름·아티스트·곡·픽업·태그·저장 슬롯 편집" className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#383838] text-[11px] text-gray-400 hover:text-white hover:border-gray-500 transition-colors"><Pencil size={10}/> 편집</button>
                   <button onClick={duplicatePreset} title="복제" className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#383838] text-[11px] text-gray-400 hover:text-white hover:border-gray-500 transition-colors"><Copy size={10}/> 복제</button>
                   <button onClick={deletePreset} disabled={presets.length<=1} title={presets.length<=1?'마지막 프리셋은 삭제할 수 없어요':'삭제'}

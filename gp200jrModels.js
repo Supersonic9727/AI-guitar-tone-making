@@ -256,7 +256,7 @@ window.GP200JR = {
   modules: ['PRE', 'WAH', 'DST', 'AMP', 'NR', 'CAB', 'EQ', 'MOD', 'DLY', 'RVB', 'VOL'],
   models,
   // 앱 블록 카테고리 → 기기 모듈 (앱의 'WAH' 카테고리 모델 T-Wah/A-WAH/Step Filter 는 기기에선 PRE)
-  moduleOf: { COMP: 'PRE', BOOST: 'PRE', PIT: 'PRE', SPX: 'PRE', WAH: 'PRE', OD: 'DST', DST: 'DST', AMP: 'AMP', NS: 'NR',
+  moduleOf: { COMP: 'PRE', BOOST: 'PRE', PIT: 'PRE', SPX: 'PRE', WAH: 'PRE', PWAH: 'WAH', OD: 'DST', DST: 'DST', AMP: 'AMP', NS: 'NR',
               CAB: 'CAB', EQ: 'EQ', CHO: 'MOD', FLG: 'MOD', PHS: 'MOD', TREM: 'MOD', DLY: 'DLY', RVB: 'RVB' },
   find(module, name) { return models[module]?.[name] ?? null; },
 };

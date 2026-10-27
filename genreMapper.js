@@ -57,7 +57,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'metalcore',
     label: 'Metalcore / Djent / Thrash',
-    match: /metalcore|djent|thrash metal|groove metal|prog metal|nu metal|alternative metal|industrial metal/,
+    match: /metalcore|djent|thrash metal|groove metal|prog metal|progressive metal|nu metal|alternative metal|industrial metal/,
     amp: 'Mess DualV',
     ampParams: { Gain:85, Bass:55, Middle:38, Treble:65, Volume:72, Presence:70 },
     cab: 'Mess',
@@ -74,7 +74,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'heavy_metal',
     label: 'Heavy Metal / Power Metal / Speed Metal',
-    match: /heavy metal|power metal|speed metal|symphonic metal|doom metal|^metal$/,
+    match: /heavy metal|power metal|speed metal|symphonic metal|doom metal|^(?!glam).*\bmetal\b/,   // folk·gothic metal 등 나머지 메탈도 여기로 (glam metal 은 하드록)
     amp: 'EV 51',
     ampParams: { Gain:80, Bass:52, Middle:40, Treble:62, Volume:70, Presence:68 },
     cab: 'UK LD',
@@ -108,7 +108,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'punk',
     label: 'Punk / Emo / Grunge / Hardcore',
-    match: /\bpunk\b|emo|grunge|hardcore punk|screamo|post-punk/,
+    match: /\bpunk\b|\bemo\b|grunge|hardcore punk|^hardcore$|screamo|post-punk/,
     amp: 'UK SLP',
     ampParams: { Gain:60, Bass:45, Middle:55, Treble:65, Volume:75, Presence:60 },
     cab: 'UK GRN 2',
@@ -176,7 +176,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'rnb_funk',
     label: 'R&B / Funk / Neo Soul',
-    match: /r&b|rnb|funk|neo soul|soul|groove|rhythm and blues/, // rhythm and blues 명시
+    match: /r&b|rnb|funk|neo soul|soul|groove|rhythm and blues|gospel|reggae|\bska\b/, // 레게·스카의 클린 커팅도 여기
     amp: 'Dark Twin',
     ampParams: { Gain:18, Bass:55, Middle:50, Treble:65, Volume:72, Presence:50 },
     cab: null,
@@ -210,7 +210,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'jpop',
     label: 'J-Pop / City Pop',
-    match: /j-pop|jpop|city pop|shibuya-kei/,
+    match: /j-pop|jpop|city pop|shibuya-kei|anime|anison|vocaloid/,   // 애니송·보컬로이드
     amp: 'Dark Twin',
     ampParams: { Gain:20, Bass:52, Middle:55, Treble:68, Volume:75, Presence:52 },
     cab: null,
@@ -227,7 +227,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'jazz',
     label: 'Jazz / Bossa Nova',
-    match: /jazz|bossa nova|bebop|cool jazz|smooth jazz/,
+    match: /jazz|bossa nova|bebop|cool jazz|smooth jazz|fusion|lo-?fi/,   // 퓨전·로파이의 재지한 클린
     amp: 'J-120 CL',
     ampParams: { Gain:15, Bass:55, Middle:52, Treble:60, Volume:75, Presence:48 },
     cab: null,
@@ -279,7 +279,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'pop',
     label: 'Pop / Indie Pop / Dance Pop',
-    match: /\bpop\b|indie pop|dream pop|dance pop|synth pop|electropop|kpop/, // kpop 추가
+    match: /\bpop\b|indie pop|dream pop|dance pop|synth pop|electropop|kpop|ballad/, // kpop·발라드
     amp: 'Foxy 30N',
     ampParams: { Gain:15, Bass:50, Middle:55, Treble:68, Volume:75, Presence:50 },
     cab: null,
@@ -325,16 +325,33 @@ const FALLBACK_RULE = {
  * 앞쪽 태그부터 보면서, 그 태그에 맞는 룰 중 목록상 가장 위(구체적인) 룰을 고른다.
  * 예) YOASOBI [pop, j-pop, j-rock] → 대표 태그 'pop' 기준으로 판단 (뒤쪽 j-rock 에 끌려가지 않음)
  */
+// 한글로 입력한 장르 → 영어 태그 (MusicBrainz 태그는 영어라 룰도 영어 기준)
+// '펑크'는 한국어에서 punk·funk 둘 다라서 punk 로, funk 는 '펑키'·'훵크'로
+const KO_GENRES = {
+  '메탈': 'metal', '헤비메탈': 'heavy metal', '헤비 메탈': 'heavy metal', '데스메탈': 'death metal', '블랙메탈': 'black metal',
+  '스래시메탈': 'thrash metal', '쓰래시메탈': 'thrash metal', '메탈코어': 'metalcore', '젠트': 'djent', '뉴메탈': 'nu metal',
+  '록': 'rock', '락': 'rock', '하드록': 'hard rock', '하드락': 'hard rock', '얼터너티브': 'alternative', '얼터너티브록': 'alternative rock',
+  '인디': 'indie rock', '인디록': 'indie rock', '인디락': 'indie rock', '포스트록': 'post-rock', '슈게이징': 'shoegaze', '슈게이즈': 'shoegaze', '매스록': 'math rock',
+  '펑크': 'punk', '펑크록': 'punk', '펑크락': 'punk', '이모': 'emo', '그런지': 'grunge', '하드코어': 'hardcore',
+  '제이록': 'j-rock', '제이락': 'j-rock', '비주얼계': 'visual kei', '비주얼케이': 'visual kei',
+  '제이팝': 'j-pop', '시티팝': 'city pop', '애니': 'anime', '애니송': 'anime', '보컬로이드': 'vocaloid',
+  '팝': 'pop', '케이팝': 'kpop', '인디팝': 'indie pop', '발라드': 'ballad',
+  '알앤비': 'r&b', '펑키': 'funk', '훵크': 'funk', '소울': 'soul', '네오소울': 'neo soul', '가스펠': 'gospel', '레게': 'reggae', '스카': 'ska',
+  '블루스': 'blues', '블루스록': 'blues rock', '재즈': 'jazz', '퓨전': 'fusion', '보사노바': 'bossa nova', '로파이': 'lo-fi',
+  '컨트리': 'country', '포크': 'folk', '블루그래스': 'bluegrass',
+};
+
 function mapGenreToHardware(tags) {
   if (!tags || tags.length === 0) {
     return { rule: FALLBACK_RULE, matched: false, matchedTag: null };
   }
 
   for (const tag of tags) {
-    const t = String(tag).toLowerCase().trim();
+    const raw = String(tag).toLowerCase().trim();
+    const t = KO_GENRES[raw] ?? KO_GENRES[raw.replace(/\s+/g, '')] ?? raw;
     if (!t) continue;
     const rule = GP200JR_GENRE_RULES.find(r => r.match.test(t));
-    if (rule) return { rule, matched: true, matchedTag: tag };
+    if (rule) return { rule, matched: true, matchedTag: t === raw ? tag : t };
   }
 
   return { rule: FALLBACK_RULE, matched: false, matchedTag: null };
