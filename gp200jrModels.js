@@ -240,12 +240,14 @@ add('DLY', 'Delay', 'Ice Delay', [...K('Mix'), TIME, ...K('Feedback', 'Mod', 'To
 add('DLY', 'Delay', 'Broken Delay', [...K('Mix'), TIME, ...K('Feedback', 'Latch', 'Cut'), SYNC, TRAIL]);   // V1.8.0 신규 (Latch·Cut 0 = 글리치 없음)
 
 // ── RVB ──────────────────────────────────────────────────────────────────────
-add('RVB', 'Reverb', ['Room', 'Hall', 'Church'], [...K('Mix', 'Pre Delay', 'Decay'), TRAIL]);
+// Pre Delay: 0(최소)~100(최대), 단위 없음 — 사용자 실기 확인 2026-10
+const PRE_DELAY = R('Pre Delay', 0, 100);
+add('RVB', 'Reverb', ['Room', 'Hall', 'Church'], [...K('Mix'), PRE_DELAY, ...K('Decay'), TRAIL]);
 add('RVB', 'Reverb', 'Plate',  [...K('Mix', 'Decay', 'High Damp'), TRAIL]);
 add('RVB', 'Reverb', 'Spring', [...K('Mix', 'Decay', 'Tone'), TRAIL]);
-add('RVB', 'Reverb', ['Tube Spring', 'Amp Spring', 'Studio'], [...K('Mix', 'Pre Delay', 'Decay', 'Low Damp', 'Hi Damp', 'Mod'), TRAIL]);
+add('RVB', 'Reverb', ['Tube Spring', 'Amp Spring', 'Studio'], [...K('Mix'), PRE_DELAY, ...K('Decay', 'Low Damp', 'Hi Damp', 'Mod'), TRAIL]);
 add('RVB', 'Reverb', ['N-Star', 'Deepsea'], [...K('Mix', 'Decay'), TRAIL]);
-add('RVB', 'Reverb', ['Sweet Space', 'Shimmer'], [...K('Mix', 'Pre Delay', 'Decay', 'Low End', 'High End'), TRAIL]);
+add('RVB', 'Reverb', ['Sweet Space', 'Shimmer'], [...K('Mix'), PRE_DELAY, ...K('Decay', 'Low End', 'High End'), TRAIL]);
 
 // ── VOL ──────────────────────────────────────────────────────────────────────
 add('VOL', 'Volume', 'Volume', K('Volume'));
