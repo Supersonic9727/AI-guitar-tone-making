@@ -12,7 +12,8 @@
  *            { n, min, max, unit }       범위/단위가 다른 노브 (ms, dB, cents …)
  *            { n, t:'switch' }           ON/OFF
  *            { n, t:'select', o:[…] }    선택형
- * - verify : 매뉴얼만으로 확정하지 못한 값 → 실제 기기로 확인 필요
+ * - verify : 매뉴얼만으로 확정하지 못한 값 → 실제 기기로 확인 필요 (앱 화면에 '미확인'으로 표시)
+ *            파라미터에 붙으면 그 범위·항목 이름이 추정값, 모델에 붙으면 문자열로 무엇이 미확인인지
  */
 
 'use strict';
@@ -22,6 +23,8 @@ const K    = (...names) => names.map(n => ({ n }));
 const R    = (n, min, max, unit, extra = {}) => ({ n, min, max, unit, ...extra });
 const SW   = n => ({ n, t: 'switch' });
 const SEL  = (n, o) => ({ n, t: 'select', o });
+const UNV  = p => ({ ...p, verify: true });          // 범위·항목 이름이 아직 기기로 확인 안 된 파라미터
+const KU   = (...names) => K(...names).map(UNV);     // 범위 미확인 0~100 노브
 const SYNC = SW('Sync'), TRAIL = SW('Trail');
 const TIME = R('Time', 0, 4000, 'ms');   // 사용자 확인(2026-10): 0~4000ms
 
@@ -68,8 +71,8 @@ add('PRE', 'Pitch', 'Pitch',  [R('Low Pitch', -24, 24, 'st', { verify: true }), 
 add('PRE', 'Pitch', 'P-Bend', [R('Low Pitch', -24, 24, 'st', { verify: true }), R('Hi Pitch', -24, 24, 'st', { verify: true }), ...K('Wet', 'Dry', 'Range')]);
 hammy('PRE');
 const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-add('PRE', 'Pitch', 'Harmonizer 1', [...K('Mix'), SEL('Key', KEYS), SEL('Mode', ['Major', 'Minor']), SEL('Interval', ['3rd', '4th', '5th', '6th', 'Oct']), SW('Smooth Mode')], { verify: true });
-add('PRE', 'Pitch', 'Harmonizer 2', [...K('Mix'), SEL('Key', KEYS), SEL('Mode', ['Major', 'Minor']), SEL('Interval 1', ['3rd', '4th', '5th', '6th', 'Oct']), SEL('Interval 2', ['3rd', '4th', '5th', '6th', 'Oct']), SW('Smooth Mode')], { verify: true });
+add('PRE', 'Pitch', 'Harmonizer 1', [...K('Mix'), SEL('Key', KEYS), SEL('Mode', ['Major', 'Minor']), SEL('Interval', ['3rd', '4th', '5th', '6th', 'Oct']), SW('Smooth Mode')], { verify: 'Key·Mode·Interval 항목 미확인' });
+add('PRE', 'Pitch', 'Harmonizer 2', [...K('Mix'), SEL('Key', KEYS), SEL('Mode', ['Major', 'Minor']), SEL('Interval 1', ['3rd', '4th', '5th', '6th', 'Oct']), SEL('Interval 2', ['3rd', '4th', '5th', '6th', 'Oct']), SW('Smooth Mode')], { verify: 'Key·Mode·Interval 항목 미확인' });
 add('PRE', 'Special', 'Ring Mod', [...K('Mix', 'Freq'), R('Fine', -50, 50, 'Hz'), ...K('Tone')]);
 add('PRE', 'Special', 'Saturate', K('Saturation', 'Mix', 'Volume', 'High Cut'));
 autoSwell('PRE');
@@ -90,7 +93,7 @@ add('DST', 'OD', 'Blues Master', K('Gain', 'Volume', 'Bass', 'Middle', 'Treble')
 add('DST', 'OD', 'Master OD',   K('Gain', 'Tone', 'Volume'));
 add('DST', 'OD', 'TaiChi OD',   K('Gain', 'Tone', 'Volume', 'Voice'));
 add('DST', 'OD', 'Timmy OD',    [...K('Gain', 'Volume', 'Bass', 'Middle', 'Treble'), SEL('Mode', ['I', 'II', 'III'])]);
-add('DST', 'OD', 'Precise OD',  [...K('Gain', 'Tone', 'Volume'), SEL('Attack', ['1', '2', '3', '4', '5', '6']), ...K('Gate')]);
+add('DST', 'OD', 'Precise OD',  [...K('Gain', 'Tone', 'Volume'), UNV(SEL('Attack', ['1', '2', '3', '4', '5', '6'])), ...K('Gate')]);
 add('DST', 'OD', 'Empire OD',   [...K('Gain', 'Tone', 'Volume'), SEL('Mode', ['1', '2', '3'])]);
 add('DST', 'Fuzz', 'Lazaro',    K('Sustain', 'Tone', 'Volume'));
 add('DST', 'Fuzz', ['Red Haze', 'Sora Fuzz'], K('Fuzz', 'Volume'));
@@ -99,7 +102,7 @@ add('DST', 'Distortion', ['SM Dist', 'La Charger'], K('Gain', 'Tone', 'Volume'))
 add('DST', 'Distortion', 'Darktale', K('Gain', 'Filter', 'Volume'));
 add('DST', 'Distortion', 'Chief', K('Gain', 'Volume', 'Bass', 'Middle', 'Treble'));
 add('DST', 'Distortion', 'Master Dist', K('Gain', 'Volume', 'Bass', 'Contour', 'Treble'));
-add('DST', 'Distortion', 'Revolt', [...K('Gain', 'Tone', 'Volume'), SEL('Mode', ['I', 'II', 'III'])]);
+add('DST', 'Distortion', 'Revolt', [...K('Gain', 'Tone', 'Volume'), UNV(SEL('Mode', ['I', 'II', 'III']))]);
 add('DST', 'Distortion', 'Flagman Dist', K('Gain', 'Volume', 'Bass', 'Treble', 'Presence', 'Tight'));
 add('DST', 'Bass Drive', 'Flex OD', [...K('Gain', 'Tone', 'Volume'), SEL('Mode', ['Normal', 'Scoop', 'Edge']), ...K('Blend')]);
 add('DST', 'Bass Drive', 'Bass OD', K('Gain', 'Blend', 'Volume', 'Bass', 'Treble'));
@@ -159,7 +162,7 @@ snapTones('AMP');
 // ── NR ───────────────────────────────────────────────────────────────────────
 add('NR', 'Gate', 'Gate 1', K('Threshold'));   // 사용자 확인: 0~100
 add('NR', 'Gate', 'Gate 2', K('Threshold', 'Attack', 'Release'));
-add('NR', 'Gate', 'Gate 3', K('Threshold', 'Ratio', 'Attack', 'Release', 'Hold', 'Hysteresis'));   // V1.8.0 신규 — 인버스 익스팬더
+add('NR', 'Gate', 'Gate 3', [...K('Threshold'), ...KU('Ratio'), ...K('Attack', 'Release'), ...KU('Hold', 'Hysteresis')]);   // V1.8.0 신규 — 인버스 익스팬더
 autoSwell('NR');
 
 // ── CAB (모든 캐비닛 공통 파라미터) ─────────────────────────────────────────
@@ -196,8 +199,8 @@ add('EQ', 'EQ', 'Guitar EQ 1', [...bands(['125Hz', '400Hz', '800Hz', '1.6kHz', '
 add('EQ', 'EQ', 'Guitar EQ 2', [...bands(['100Hz', '500Hz', '1kHz', '3kHz', '6kHz'], true), ...K('Volume')]);
 add('EQ', 'EQ', 'Bass EQ 1',   [...bands(['33Hz', '150Hz', '600Hz', '2kHz', '8kHz'], true), ...K('Volume')]);
 add('EQ', 'EQ', 'Bass EQ 2',   [...bands(['50Hz', '120Hz', '400Hz', '800Hz', '4.5kHz'], true), ...K('Volume')]);
-add('EQ', 'EQ', 'Mess EQ',     bands(['80Hz', '240Hz', '750Hz', '2.2kHz', '6.6kHz'], true));
-add('EQ', 'EQ', 'Hyper EQ',    [...bands(['31Hz', '63Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz']), ...K('Volume')]);   // 매뉴얼: ±12dB
+add('EQ', 'EQ', 'Mess EQ',     bands(['80Hz', '240Hz', '750Hz', '2.2kHz', '6.6kHz'], true), { verify: 'Volume 노브가 있는지 미확인' });
+add('EQ', 'EQ', 'Hyper EQ',    [...bands(['31Hz', '63Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz'], true), ...K('Volume')]);   // 매뉴얼: ±12dB (기기 미확인)
 
 // ── MOD (코러스·플랜저·페이저·트레몰로 등 — 한 번에 1개만) ──────────────────
 add('MOD', 'Chorus', ['G-Chorus', 'B-Chorus'], [...K('Depth', 'Rate', 'Volume'), SYNC]);
@@ -224,8 +227,8 @@ freezes('MOD');
 
 // ── DLY (Time = ms) ──────────────────────────────────────────────────────────
 const DLY_BASIC = [...K('Mix', 'Feedback'), TIME, SYNC, TRAIL];
-add('DLY', 'Delay', ['BBD Delay S', 'Digital Delay S'], [...K('Mix', 'Feedback'), TIME, ...K('Time R%', 'Spread', 'Level'), SYNC, TRAIL]);
-add('DLY', 'Delay', 'Tape Delay S', [...K('Mix', 'Feedback'), TIME, ...K('Time R%', 'Spread', 'Wow & Flutter'), SEL('Age', ['1', '2', '3']), ...K('Scrape', 'Drive', 'Level'), SYNC, TRAIL]);
+add('DLY', 'Delay', ['BBD Delay S', 'Digital Delay S'], [...K('Mix', 'Feedback'), TIME, ...KU('Time R%', 'Spread'), ...K('Level'), SYNC, TRAIL]);
+add('DLY', 'Delay', 'Tape Delay S', [...K('Mix', 'Feedback'), TIME, ...KU('Time R%', 'Spread'), ...K('Wow & Flutter'), SEL('Age', ['1', '2', '3']), ...K('Scrape', 'Drive', 'Level'), SYNC, TRAIL]);
 add('DLY', 'Delay', ['Ambience 1', 'Ambience 2'], [...K('Mix', 'Feedback'), TIME, ...K('Level', 'Mod', 'Tone'), SYNC, TRAIL]);
 add('DLY', 'Delay', ['Pure', 'Analog', 'Tape', 'Ping Pong', 'Tube', 'Sweet Echo', '999 Echo'], DLY_BASIC);
 add('DLY', 'Delay', 'Slapback', [...K('Mix', 'Feedback'), TIME, TRAIL]);
@@ -236,8 +239,8 @@ add('DLY', 'Delay', 'Vintage Rack', [...K('Mix', 'Feedback'), TIME, ...K('Mod', 
 add('DLY', 'Delay', 'Lofi Echo', [...K('Mix', 'Feedback'), TIME, ...K('Crush', 'Bit'), SYNC, TRAIL]);
 add('DLY', 'Delay', 'Rev Echo', [...K('Mix', 'Feedback'), TIME, ...K('Volume'), SYNC, TRAIL]);
 add('DLY', 'Delay', 'Dual Echo', [...K('Mix A', 'FB A'), R('Time A', 0, 4000, 'ms'), ...K('Mix B', 'FB B'), R('Time B', 0, 4000, 'ms'), SW('A Sync'), SW('B Sync'), TRAIL]);
-add('DLY', 'Delay', 'Ice Delay', [...K('Mix'), TIME, ...K('Feedback', 'Mod', 'Tone'), SEL('Pitch', ['-12', '-7', '-5', '+5', '+7', '+12']), SEL('Slice', ['1/16', '1/8', '1/4']), SEL('Direction', ['Forward', 'Reverse']), ...K('Blend', 'Smooth', 'Level'), SYNC, TRAIL], { verify: true });
-add('DLY', 'Delay', 'Broken Delay', [...K('Mix'), TIME, ...K('Feedback', 'Latch', 'Cut'), SYNC, TRAIL]);   // V1.8.0 신규 (Latch·Cut 0 = 글리치 없음)
+add('DLY', 'Delay', 'Ice Delay', [...K('Mix'), TIME, ...K('Feedback', 'Mod', 'Tone'), SEL('Pitch', ['-12', '-7', '-5', '+5', '+7', '+12']), SEL('Slice', ['1/16', '1/8', '1/4']), SEL('Direction', ['Forward', 'Reverse']), ...K('Blend', 'Smooth', 'Level'), SYNC, TRAIL], { verify: 'Pitch·Slice·Direction 항목 미확인' });
+add('DLY', 'Delay', 'Broken Delay', [...K('Mix'), TIME, ...K('Feedback'), ...KU('Latch', 'Cut'), SYNC, TRAIL]);   // V1.8.0 신규 (Latch·Cut 0 = 글리치 없음)
 
 // ── RVB ──────────────────────────────────────────────────────────────────────
 // Pre Delay: 0(최소)~100(최대), 단위 없음 — 사용자 실기 확인 2026-10

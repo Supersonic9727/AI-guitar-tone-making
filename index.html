@@ -17,7 +17,7 @@
     });
   </script>
   <script src="./genreMapper.js?v=5"></script>
-  <script src="./gp200jrModels.js?v=6"></script>
+  <script src="./gp200jrModels.js?v=7"></script>
   <!-- Firebase (구글 로그인 + Firestore 클라우드 동기화). 로딩에 실패해도 앱은 로컬 저장으로 동작 -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -549,7 +549,13 @@ function fmtParamValue(p, v) {
   if ((p.min ?? 0) < 0) return `${v > 0 ? '+' : ''}${v}${p.unit === 'cents' ? '¢' : p.unit}`;
   return `${v}${p.unit}`;
 }
-const fmtBlockParams = b => Object.entries(b.params).map(([k, v]) => `${k} ${fmtParamValue(paramSpec(b, k), v)}`).join(' · ');
+// 기기에서 아직 확인 안 된 값 (gp200jrModels.js 의 verify) — 화면엔 '?', 텍스트엔 '(?)' 로 표시. 숫자는 추정값
+const UNVERIFIED_TIP = '기기에서 아직 확인 안 된 범위·항목이에요 (추정값)';
+const isUnverified = (b, k) => !!paramSpec(b, k)?.verify;
+const modelVerifyNote = b => { const v = modelSpec(b.cat, b.model)?.verify; return typeof v === 'string' ? v : v ? '일부 항목 미확인' : null; };
+const hasUnverified = chain => chain.some(b => modelVerifyNote(b) || Object.keys(b.params).some(k => isUnverified(b, k)));
+const UnverifiedMark = () => <sup title={UNVERIFIED_TIP} aria-label="미확인 값" className="ml-0.5 text-[9px] font-black text-amber-400 cursor-help">?</sup>;
+const fmtBlockParams = b => Object.entries(b.params).map(([k, v]) => `${k} ${fmtParamValue(paramSpec(b, k), v)}${isUnverified(b, k) ? '(?)' : ''}`).join(' · ');
 
 // 한 모듈에 2개 이상 들어간 블록 찾기 (실제 기기는 모듈당 1개만)
 function moduleConflicts(chain) {
@@ -769,6 +775,12 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
               <div className="text-xs text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-1.5"><Sliders size={9}/> PARAMETERS
                 {spec && <span className="ml-auto normal-case tracking-normal text-[10px] text-gray-500">GP-200JR {GP?.firmware} · {spec.module} 모듈</span>}
               </div>
+              {hasUnverified([block]) && (
+                <div className="rounded-lg px-3 py-2 mb-4 text-[11px] bg-amber-900/15 border border-amber-500/30 text-amber-300">
+                  <strong>?</strong> 표시는 기기에서 아직 확인 안 된 값이에요 — 범위·항목 이름이 추정이라 기기 화면과 다를 수 있어요.
+                  {modelVerifyNote(block) && <div className="mt-0.5 font-bold">{modelVerifyNote(block)}</div>}
+                </div>
+              )}
               {/* 표에 정의된 파라미터는 기기와 같은 종류(노브/스위치/선택)로, 없으면 0~100 노브로 */}
               {(() => {
                 const items = Object.entries(block.params).map(([key, val]) => ({ key, val, p: spec?.params.find(x => x.n === key) ?? null }));
@@ -788,6 +800,7 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
                               <button onClick={()=>onParamChange(key,Math.min(max,val+step))} className="w-5 h-5 flex items-center justify-center rounded border border-[#1e1e1e] text-gray-400 hover:text-gray-300 transition-colors"><Plus size={9}/></button>
                             </div>
                             {p?.hz && <span className="text-[10px] text-gray-500 -mt-0.5">{p.hz}</span>}
+                            {p?.verify && <span title={UNVERIFIED_TIP} className="text-[10px] font-bold text-amber-400 -mt-0.5 cursor-help">? 범위 미확인</span>}
                           </div>
                         );
                       })}
@@ -796,7 +809,7 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
                       <div className="mt-5 space-y-2.5">
                         {others.map(({ key, val, p }) => (
                           <div key={key} className="flex items-center gap-3">
-                            <span className="text-xs text-gray-400 uppercase w-20 flex-shrink-0">{key}</span>
+                            <span className="text-xs text-gray-400 uppercase w-20 flex-shrink-0">{key}{p?.verify && <UnverifiedMark/>}</span>
                             {typeof val === 'boolean' ? (
                               <button onClick={()=>onParamChange(key,!val)} role="switch" aria-checked={val}
                                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-black transition-colors"
@@ -989,7 +1002,7 @@ function buildReadableText(presets) {
     lines.push(sep2); lines.push('  SIGNAL CHAIN:');
     p.chain.forEach((b,bi) => {
       const label=FX_LABEL[b.cat]??b.cat, status=b.active?'ON ':'OFF';
-      const paramStr=Object.entries(b.params).map(([k,v])=>`${k.toUpperCase()}:${fmtParamValue(paramSpec(b,k),v).padStart(3)}`).join("  ");
+      const paramStr=Object.entries(b.params).map(([k,v])=>`${k.toUpperCase()}:${fmtParamValue(paramSpec(b,k),v).padStart(3)}${isUnverified(b,k)?'(?)':''}`).join("  ");
       lines.push(`  [${bi+1}] [${status}] ${label.padEnd(12)} ${b.model.padEnd(18)} ${paramStr}`);
     });
     lines.push('');
@@ -1080,7 +1093,9 @@ function settingCardText(preset, useCab) {
     const base = MODEL_DB[b.cat]?.models.find(m => m.name === b.model || m.id === b.model)?.base;
     lines.push(`☐ ${i + 1}. [${FX_LABEL[b.cat] ?? b.cat}] ${b.model}${base ? ` (${base})` : ''}${off ? '  ※ OFF' : ''}`);
     if (!off) lines.push(`     ${fmtBlockParams(b)}`);
+    if (!off && modelVerifyNote(b)) lines.push(`     (?) ${modelVerifyNote(b)}`);
   });
+  if (hasUnverified(preset.chain)) lines.push('──────────────────────────', '(?) = 기기에서 아직 확인 안 된 값 (추정) — 기기 화면과 다르면 기기 기준으로');
   return lines.join('\n');
 }
 async function copyText(text) {
@@ -1155,7 +1170,8 @@ function SettingCardModal({ preset, useCab, onClose, onToast }) {
                         {off && <span className="text-[10px] font-bold text-orange-400">OFF</span>}
                       </div>
                       {base && <div className="text-[10px] text-gray-500 mt-0.5">{base}</div>}
-                      {!off && <div className="text-xs text-gray-300 mt-1 leading-relaxed">{Object.entries(b.params).map(([k, v]) => <span key={k} className="inline-block mr-2.5 whitespace-nowrap"><span className="text-gray-500">{k}</span> <strong>{fmtParamValue(paramSpec(b, k), v)}</strong></span>)}</div>}
+                      {!off && <div className="text-xs text-gray-300 mt-1 leading-relaxed">{Object.entries(b.params).map(([k, v]) => <span key={k} className="inline-block mr-2.5 whitespace-nowrap"><span className="text-gray-500">{k}</span> <strong>{fmtParamValue(paramSpec(b, k), v)}</strong>{isUnverified(b, k) && <UnverifiedMark/>}</span>)}</div>}
+                      {!off && modelVerifyNote(b) && <div className="text-[10px] text-amber-400/80 mt-0.5">? {modelVerifyNote(b)}</div>}
                     </div>
                   </button>
                 </li>
@@ -2816,9 +2832,10 @@ function ToneCloudApp() {
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
                       {Object.entries(b.params).map(([k, v]) => (
-                        <span key={k} className="whitespace-nowrap"><span className="text-gray-500">{k}</span> <strong className="text-gray-200">{fmtParamValue(paramSpec(b, k), v)}</strong></span>
+                        <span key={k} className="whitespace-nowrap"><span className="text-gray-500">{k}</span> <strong className="text-gray-200">{fmtParamValue(paramSpec(b, k), v)}</strong>{isUnverified(b, k) && <UnverifiedMark/>}</span>
                       ))}
                     </div>
+                    {modelVerifyNote(b) && <div className="text-[10px] text-amber-400/80 mt-1">? {modelVerifyNote(b)}</div>}
                   </button>
                 );
               })}
