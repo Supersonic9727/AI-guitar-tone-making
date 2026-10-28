@@ -91,7 +91,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'hard_rock',
     label: 'Hard Rock / Post-Hardcore / Arena Rock',
-    match: /hard rock|post-hardcore|glam metal|arena rock|sleaze rock/,
+    match: /hard rock|post-hardcore|glam metal|arena rock|sleaze rock|rap rock/,   // 랩록(RATM 등)은 힙합이 아니라 하드록으로
     amp: 'UK 800',
     ampParams: { Gain:65, Bass:48, Middle:58, Treble:62, Volume:72, Presence:65 },
     cab: 'UK GRN 2',
@@ -125,7 +125,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'post_rock',
     label: 'Post-Rock / Shoegaze / Math Rock',
-    match: /post-rock|shoegaze|math rock|noise rock|dream pop rock/,
+    match: /post-rock|shoegaze|math rock|noise rock|dream pop rock|ambient|electronic|\bedm\b/,   // 앰비언트·일렉트로닉은 클린 + 공간계
     amp: 'Foxy 30TB',
     ampParams: { Gain:40, Bass:48, Middle:55, Treble:65, Volume:70, Presence:58 },
     cab: 'FOXY 2',
@@ -142,7 +142,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'alternative_rock',
     label: 'Alternative Rock / Indie Rock',
-    match: /alternative rock|indie rock|\balternative\b|britpop|garage rock revival/, // 단어 경계로 안정화
+    match: /alternative rock|indie rock|\balternative\b|^indie$|britpop|garage rock revival/, // 단어 경계로 안정화 (indie 는 단독일 때만 — indie pop 은 팝)
     amp: 'UK 45',
     ampParams: { Gain:45, Bass:50, Middle:60, Treble:58, Volume:70, Presence:55 },
     cab: 'UK GRN 2',
@@ -176,7 +176,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'rnb_funk',
     label: 'R&B / Funk / Neo Soul',
-    match: /r&b|rnb|funk|neo soul|soul|groove|rhythm and blues|gospel|reggae|\bska\b/, // 레게·스카의 클린 커팅도 여기
+    match: /r&b|rnb|funk|neo soul|soul|groove|rhythm and blues|gospel|reggae|\bska\b|hip ?hop|\brap\b|\btrap\b|disco/, // 레게·스카·힙합·디스코의 클린 커팅도 여기
     amp: 'Dark Twin',
     ampParams: { Gain:18, Bass:55, Middle:50, Treble:65, Volume:72, Presence:50 },
     cab: null,
@@ -227,7 +227,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'jazz',
     label: 'Jazz / Bossa Nova',
-    match: /jazz|bossa nova|bebop|cool jazz|smooth jazz|fusion|lo-?fi/,   // 퓨전·로파이의 재지한 클린
+    match: /jazz|bossa nova|bebop|cool jazz|smooth jazz|fusion|lo-?fi|classical/,   // 퓨전·로파이·클래식의 재지한 클린
     amp: 'J-120 CL',
     ampParams: { Gain:15, Bass:55, Middle:52, Treble:60, Volume:75, Presence:48 },
     cab: null,
@@ -279,7 +279,7 @@ const GP200JR_GENRE_RULES = [
   {
     id: 'pop',
     label: 'Pop / Indie Pop / Dance Pop',
-    match: /\bpop\b|indie pop|dream pop|dance pop|synth pop|electropop|kpop|ballad/, // kpop·발라드
+    match: /\bpop\b|indie pop|dream pop|dance pop|synth ?pop|electropop|kpop|ballad|trot|\bidol\b/, // kpop·발라드·트로트·아이돌
     amp: 'Foxy 30N',
     ampParams: { Gain:15, Bass:50, Middle:55, Treble:68, Volume:75, Presence:50 },
     cab: null,
@@ -335,7 +335,8 @@ const KO_GENRES = {
   '펑크': 'punk', '펑크록': 'punk', '펑크락': 'punk', '이모': 'emo', '그런지': 'grunge', '하드코어': 'hardcore',
   '제이록': 'j-rock', '제이락': 'j-rock', '비주얼계': 'visual kei', '비주얼케이': 'visual kei',
   '제이팝': 'j-pop', '시티팝': 'city pop', '애니': 'anime', '애니송': 'anime', '보컬로이드': 'vocaloid',
-  '팝': 'pop', '케이팝': 'kpop', '인디팝': 'indie pop', '발라드': 'ballad',
+  '팝': 'pop', '케이팝': 'kpop', '인디팝': 'indie pop', '발라드': 'ballad', '트로트': 'trot', '뽕짝': 'trot', '아이돌': 'idol', '브릿팝': 'britpop',
+  '힙합': 'hip hop', '랩': 'rap', '디스코': 'disco', '앰비언트': 'ambient', '일렉트로닉': 'electronic', '이디엠': 'edm', '클래식': 'classical',
   '알앤비': 'r&b', '펑키': 'funk', '훵크': 'funk', '소울': 'soul', '네오소울': 'neo soul', '가스펠': 'gospel', '레게': 'reggae', '스카': 'ska',
   '블루스': 'blues', '블루스록': 'blues rock', '재즈': 'jazz', '퓨전': 'fusion', '보사노바': 'bossa nova', '로파이': 'lo-fi',
   '컨트리': 'country', '포크': 'folk', '블루그래스': 'bluegrass',
