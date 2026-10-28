@@ -1071,6 +1071,44 @@ function ExportModal({ presets, active, onClose }) {
   );
 }
 
+// 가져오기: EXPORT 백업 파일 선택 / Claude 채팅이 만든 JSON 붙여넣기
+function ImportModal({ onPickFile, onPaste, onClose }) {
+  const [text, setText] = useState('');
+  useEscape(onClose);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="w-full max-w-lg flex flex-col rounded-2xl border border-[#404040] overflow-hidden" style={{background:'#080808',maxHeight:'90vh'}}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#303030]">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-blue-600 p-1.5 rounded-lg"><Upload size={13} className="text-white"/></div>
+            <div><div className="text-sm font-black text-white">프리셋 가져오기</div><div className="text-xs text-gray-400 mt-0.5">백업 파일 또는 Claude 채팅에서 받은 JSON</div></div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#404040] text-gray-400 hover:text-gray-300"><X size={13}/></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <button onClick={onPickFile} className="w-full flex items-start gap-3 p-3.5 rounded-xl border border-[#1a1a1a] bg-[#0d0d0d] hover:border-blue-500/60 text-left">
+            <span className="text-xl flex-shrink-0">📦</span>
+            <div><div className="text-xs font-bold text-gray-300">백업 파일 선택 <span className="ml-1 font-mono opacity-60">.json</span></div><div className="text-xs text-gray-400 mt-0.5">EXPORT로 받은 전체 백업·단일 프리셋 파일</div></div>
+          </button>
+          <div>
+            <div className="text-xs font-bold text-gray-300 mb-1">🤖 Claude 채팅 JSON 붙여넣기</div>
+            <div className="text-[11px] text-gray-400 mb-2 leading-relaxed">Claude 채팅 프로젝트에 "coldrain 톤을 TONE CLOUD JSON으로 만들어줘"라고 요청한 뒤, 답변의 코드 블록을 복사해서 그대로 붙여넣으세요. 앞뒤 설명이 섞여 있어도 괜찮아요.</div>
+            <textarea value={text} onChange={e=>setText(e.target.value)} rows={8} spellCheck={false}
+              placeholder={'{ "presets": [ { "name": "coldrain · Lead", "artist": "coldrain", "schema": 4, "chain": [ … ] } ] }'}
+              className="w-full bg-[#040404] border border-[#2a2a2a] rounded-xl p-3 text-base sm:text-xs font-mono text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-600"/>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 px-5 py-4 border-t border-[#303030]">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-[#404040] text-gray-400 hover:text-gray-300 text-xs font-bold">취소</button>
+          <button onClick={()=>onPaste(text)} disabled={!text.trim()} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black bg-blue-600 text-white disabled:opacity-30">
+            <Upload size={13}/> 붙여넣은 내용 가져오기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const chainOrderText = chain => isDefaultOrder(chain) ? `${CHAIN_ORDER_TEXT} (기기 기본 순서에서 VOL만 DLY 앞으로)`
   : `순서 변경 필요 → ${chain.map(blockModule).filter((m, i, a) => m && a.indexOf(m) === i).join(' → ')} (VOL은 DLY 앞)`;
 const EXP_TEXT = 'EXP 1 → VOL 모듈 Volume (Patch Settings → EXP Settings에서 확인)';
@@ -1701,7 +1739,7 @@ const HeaderIconButton = ({ onClick, title, icon, label, primary=false }) => (
   </button>
 );
 
-const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExport, fileInputRef, user, syncStatus, onSignIn, onSignOut, onMenu }) => {
+const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExport, setShowImport, user, syncStatus, onSignIn, onSignOut, onMenu }) => {
   const [dot, label] = SYNC_LABEL[syncStatus] ?? SYNC_LABEL.off;
   return (
     <header className="flex items-center justify-between gap-2 px-3 md:px-6 py-2.5 md:py-3 border-b border-[#303030] bg-[#111111] flex-shrink-0">
@@ -1733,7 +1771,7 @@ const ToneCloudHeader = React.memo(({ presetsLength, setShowBrowser, setShowExpo
             className="flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 h-8 border border-[#404040] hover:border-green-500/50 text-gray-400 hover:text-green-400 px-2.5 md:px-3 rounded-lg text-[13px] font-bold transition-colors">☁️ <span className="hidden sm:inline">구글 </span>로그인</button>
         )}
         <HeaderIconButton onClick={()=>setShowBrowser(true)} icon={<BookOpen size={13}/>} label="MODEL DB" title="GP-200JR 모델 DB"/>
-        <HeaderIconButton onClick={()=>fileInputRef.current?.click()} icon={<Upload size={13}/>} label="IMPORT" title="EXPORT로 받은 백업 JSON 불러오기"/>
+        <HeaderIconButton onClick={()=>setShowImport(true)} icon={<Upload size={13}/>} label="IMPORT" title="백업 파일 또는 Claude 채팅 JSON 가져오기"/>
         <HeaderIconButton onClick={()=>setShowExport(true)} icon={<Download size={13}/>} label="EXPORT" title="프리셋 내보내기" primary/>
       </div>
     </header>
@@ -1837,6 +1875,21 @@ const PresetSidebar = React.memo(({
   return true;
 });
 
+const normArtist = s => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+// AI TONE 에서 같은 아티스트로 저장해 둔 내 톤 바로 열기
+const MyTonesBox = ({ tones, onOpen }) => tones.length > 0 && (
+  <div className="mb-2.5 rounded-lg border border-amber-500/30 bg-amber-900/10 p-2.5">
+    <div className="text-xs font-bold text-amber-300 mb-1.5">📌 내가 저장한 톤 {tones.length}개 — 장르 톤보다 이쪽이 그 밴드에 더 가까워요</div>
+    <div className="flex flex-wrap gap-1.5">
+      {tones.slice(0, 6).map(p => (
+        <button key={p.id} onClick={()=>onOpen(p.id)} className="text-[11px] px-2 py-1 rounded-md border border-amber-500/40 text-amber-200 hover:bg-amber-500/20 transition-colors">
+          {p.name}{p.rating ? ` ★${p.rating}` : ''}{p.slot ? ` · ${p.slot}` : ''} <span className="font-black">열기 →</span>
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
 const ToneCloudFooter = React.memo(({
   aiPreview,
   aiQuery,
@@ -1853,7 +1906,9 @@ const ToneCloudFooter = React.memo(({
   aiNote,
   aiCandidates,
   onPickCandidate,
-  onCancelCandidates
+  onCancelCandidates,
+  myTones,
+  onOpenMyTone
 }) => {
   return (
     <footer className="border-t border-[#2a2a2a] bg-[#111111] px-3 md:px-6 py-3 md:py-4 flex-shrink-0 space-y-3 md:space-y-4">
@@ -1870,7 +1925,8 @@ const ToneCloudFooter = React.memo(({
               <button onClick={saveAI} className="flex items-center gap-1.5 text-[13px] text-white bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-lg font-bold transition-colors"><Save size={10}/> SAVE PRESET</button>
             </div>
           </div>
-          
+          <MyTonesBox tones={myTones} onOpen={onOpenMyTone}/>
+
           <div className="flex items-center gap-1 overflow-x-auto pb-2.5 border-b border-[#1e293b]">
             {aiPreview.chain.map((b,i)=>{const c=FX_COLOR[b.cat]??FX_COLOR.EQ;const on=b.active&&!(b.cat==='CAB'&&!useCab);return(
               <React.Fragment key={i}>
@@ -1916,6 +1972,7 @@ const ToneCloudFooter = React.memo(({
           <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
             {aiNote && <span className="text-[11px] text-gray-400">🔎 판단 근거: {aiNote}</span>}
             {hasRealArtist(aiPreview.artist) && <YouTubeLink artist={aiPreview.artist} song={aiPreview.song}/>}
+            <span className="text-[11px] text-gray-500">💾 저장하고 기기에서 다듬으면, 다음에 이 아티스트를 검색할 때 내 톤이 먼저 나와요</span>
           </div>
         </div>
       ) : aiCandidates ? (
@@ -1925,6 +1982,7 @@ const ToneCloudFooter = React.memo(({
             <span className="text-sm font-bold text-green-300">🎸 이 아티스트가 맞나요?</span>
             <button onClick={onCancelCandidates} className="flex items-center gap-1 text-[12px] text-gray-400 hover:text-white px-2.5 py-1 rounded-lg border border-[#404040]"><X size={10}/> 취소</button>
           </div>
+          <MyTonesBox tones={myTones} onOpen={onOpenMyTone}/>
           <div className="space-y-1.5">
             {aiCandidates.list.map((a, i) => {
               const tags = (a.tags || []).slice().sort((x, y) => y.count - x.count).slice(0, 4).map(t => t.name);
@@ -2005,6 +2063,7 @@ const ToneCloudFooter = React.memo(({
          prev.aiError === next.aiError &&
          prev.aiNote === next.aiNote &&
          prev.aiCandidates === next.aiCandidates &&
+         prev.myTones === next.myTones &&
          prev.useCab === next.useCab;
 });
 
@@ -2022,19 +2081,41 @@ function loadSaved() {
 }
 const cloneChain = chain => chain.map(b => ({ ...b, params: { ...b.params } }));
 
-// EXPORT 로 받은 백업(JSON) → 프리셋 배열. 전체 백업 / 단일 프리셋 두 형식 모두 지원
-function parseImportedPresets(text) {
-  let data;
-  try { data = JSON.parse(text); } catch { throw new Error('JSON 파일이 아니에요. EXPORT로 받은 .json 파일을 선택해주세요.'); }
-  const list = Array.isArray(data?.presets) ? data.presets : data?.preset ? [data.preset] : Array.isArray(data) ? data : null;
-  if (!list) throw new Error('TONE CLOUD 백업 파일 형식이 아니에요.');
+// 붙여넣은 글에서 JSON 부분만 (Claude 답변의 ```json 코드 블록·앞뒤 설명 포함)
+function extractJSON(text) {
+  try { return JSON.parse(text); } catch {}
+  const s = text.search(/[[{]/), e = Math.max(text.lastIndexOf('}'), text.lastIndexOf(']'));
+  if (s >= 0 && e > s) try { return JSON.parse(text.slice(s, e + 1)); } catch {}
+  return undefined;
+}
+// 모델이 속한 카테고리가 틀렸거나 모듈 이름(DLY 등)으로 적혀 있으면 MODEL_DB 기준으로 바로잡음
+const fixBlockCat = b => MODEL_DB[b.cat]?.models.some(m => m.name === b.model || m.id === b.model) ? b : { ...b, cat: modelCategory(b.model) ?? b.cat };
+
+// EXPORT 로 받은 백업(JSON) 또는 Claude 채팅이 만든 프리셋 → { presets, warnings }
+// 전체 백업 / 단일 프리셋 / 프리셋 배열 형식 모두 지원. pasted: 붙여넣기는 schema 가 없어도 현재 형식으로 봄
+function parseImportedPresets(text, { pasted = false } = {}) {
+  const data = extractJSON(text);
+  if (data === undefined) throw new Error(pasted ? 'JSON을 찾지 못했어요. Claude가 준 코드 블록을 통째로 붙여넣어주세요.' : 'JSON 파일이 아니에요. EXPORT로 받은 .json 파일을 선택해주세요.');
+  const list = Array.isArray(data?.presets) ? data.presets : data?.preset ? [data.preset] : Array.isArray(data) ? data : data?.chain ? [data] : null;
+  if (!list) throw new Error('TONE CLOUD 프리셋 형식이 아니에요.');
+  const unknownModels = new Set(), unknownParams = new Set();
   const valid = list
-    .map(p => p && { ...p, id: String(p.id ?? `imp-${Math.random().toString(36).slice(2, 8)}`) })
+    .map(p => p && { ...p, id: String(p.id ?? `imp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`), ...(pasted && p.schema == null ? { schema: PARAM_SCHEMA } : {}) })
     .filter(isValidPreset)
     .map(p => ({ artist: '', song: '', tags: [], pickup: '', rating: 0, isAI: false, ...p,
-      chain: p.chain.map((b, i) => ({ active: true, ...b, id: String(b.id ?? `${p.id}-${i}`), params: { ...b.params } })) }));
+      chain: p.chain.map((b, i) => fixBlockCat({ active: true, ...b, id: String(b.id ?? `${p.id}-${i}`), params: { ...b.params } })) }));
   if (!valid.length) throw new Error('가져올 수 있는 프리셋이 없어요.');
-  return valid.map(normalizePreset);   // 옛 버전 백업도 실제 기기 파라미터로 변환
+  // 현재 형식 프리셋만 검사 (옛 백업은 이름·값을 변환하므로 제외) — 표에 없는 이름은 기본값으로 채워짐
+  for (const p of valid) if (p.schema === PARAM_SCHEMA) for (const b of p.chain) {
+    const spec = modelSpec(b.cat, b.model);
+    if (!spec) { unknownModels.add(b.model); continue; }
+    for (const k of Object.keys(b.params)) if (!spec.params.some(x => x.n === k)) unknownParams.add(`${b.model} ${k}`);
+  }
+  const warnings = [
+    unknownModels.size && `기기 표에 없는 모델: ${[...unknownModels].join(', ')}`,
+    unknownParams.size && `이름이 맞지 않아 기본값으로 둔 값: ${[...unknownParams].join(', ')}`,
+  ].filter(Boolean);
+  return { presets: valid.map(normalizePreset), warnings };   // 옛 버전 백업도 실제 기기 파라미터로 변환
 }
 
 // 이름 + 블록 구성/값이 같으면 같은 프리셋 (블록 id·키 순서는 무시)
@@ -2180,6 +2261,7 @@ function ToneCloudApp() {
   const [useCab,setUseCab]=useState(()=>saved?.useCab ?? true);
   const [showBrowser,setShowBrowser]=useState(false);
   const [showExport,setShowExport]=useState(false);
+  const [showImport,setShowImport]=useState(false);
   const [showWizard,setShowWizard]=useState(false);
   const [aiError,setAiError]=useState(null);
   const [aiNote,setAiNote]=useState(null);
@@ -2355,9 +2437,9 @@ function ToneCloudApp() {
 
   const toastTimer = useRef(null);
   // action: { label, onClick } — 토스트 안에 버튼 (예: 삭제 되돌리기). 버튼이 있으면 조금 더 오래 보여줌
-  const showToast = (msg, action = null) => {
+  const showToast = (msg, action = null, ms = action ? 6000 : 2800) => {
     setToast({ msg, action }); clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), action ? 6000 : 2800);
+    toastTimer.current = setTimeout(() => setToast(null), ms);
   };
 
   // 프리셋을 바꾸면 이름 편집·삭제 확인 상태는 초기화
@@ -2533,6 +2615,18 @@ function ToneCloudApp() {
     setPresets(prev=>[aiPreview,...prev]);
     setActiveId(aiPreview.id); setSelBlockId(null); setAiPreview(null); setAiQuery('');
   };
+  // 이 아티스트로 내가 저장해 둔 톤 (AI 톤을 기기에서 다듬은 것·Claude 채팅에서 가져온 것) — 장르 톤보다 먼저 보여줌
+  const myTones = useMemo(() => {
+    const names = aiCandidates ? [aiCandidates.query, ...aiCandidates.list.flatMap(a => [a.name, a['sort-name'], ...(a.aliases ?? []).map(x => x.name)])]
+      : aiPreview && hasRealArtist(aiPreview.artist) ? [aiPreview.artist] : [];
+    const want = new Set(names.map(normArtist).filter(Boolean));
+    return want.size ? presets.filter(p => want.has(normArtist(p.artist)))
+      .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || presetStamp(b) - presetStamp(a)) : [];
+  }, [presets, aiCandidates, aiPreview]);
+  const openMyTone = id => {
+    setActiveId(id); setSelBlockId(null); setAiCandidates(null); setAiPreview(null); setAiQuery('');
+    showToast('저장해 둔 톤을 열었어요');
+  };
   const addCabBlock = () => {
     if (active.chain.some(b => b.cat === 'CAB')) return;
     // 실제 기기 캐비닛·파라미터로 (Marshall 1960AV 4x12, 저음 80Hz 정리, 고음은 자르지 않음)
@@ -2599,13 +2693,16 @@ function ToneCloudApp() {
     showToast(`"${active.name}" 삭제됨`, { label: '되돌리기', onClick: undo });
   };
 
-  // ── 가져오기 (EXPORT 백업 JSON) — 기존 프리셋에 합침. 똑같은 프리셋은 건너뜀 ──
+  // ── 가져오기 (EXPORT 백업 JSON 파일 / Claude 채팅 JSON 붙여넣기) — 기존 프리셋에 합침. 똑같은 프리셋은 건너뜀 ──
   const handleImportFile = async e => {
     const file = e.target.files?.[0];
     e.target.value = '';   // 같은 파일을 다시 골라도 동작하도록
-    if (!file) return;
+    if (file && importPresets(await file.text())) setShowImport(false);
+  };
+  // 성공하면 true (붙여넣기 창을 닫을지 판단)
+  const importPresets = (text, pasted = false) => {
     try {
-      const incoming = parseImportedPresets(await file.text());
+      const { presets: incoming, warnings } = parseImportedPresets(text, { pasted });
       const existing = new Set(presets.map(presetSignature));
       const ids = new Set(presets.map(p => p.id));
       const slots = new Set(presets.map(p => p.slot).filter(Boolean));
@@ -2625,11 +2722,14 @@ function ToneCloudApp() {
         ids.add(preset.id); added.push(preset); rememberOriginal(preset);
       }
       if (added.length) { setPresets(prev => [...added, ...prev]); setActiveId(added[0].id); setSelBlockId(null); }
-      showToast(added.length
+      showToast((added.length
         ? `${added.length}개 프리셋을 가져왔어요${skipped ? ` (이미 있는 ${skipped}개는 건너뜀)` : ''}${slotCleared ? ` · 겹치거나 잘못된 슬롯 ${slotCleared}개는 지정 해제` : ''}`
-        : `새로 가져올 프리셋이 없어요 (${skipped}개 모두 이미 있음)`);
+        : `새로 가져올 프리셋이 없어요 (${skipped}개 모두 이미 있음)`)
+        + (warnings.length ? ` ⚠️ ${warnings.join(' / ')}` : ''), null, warnings.length ? 9000 : 2800);
+      return true;
     } catch (err) {
       showToast(`⚠️ ${err.message}`);
+      return false;
     }
   };
 
@@ -2638,6 +2738,7 @@ function ToneCloudApp() {
     <div className="h-screen h-[100dvh] overflow-hidden bg-[#0a0a0a] text-gray-200 flex flex-col" style={{fontFamily:"'Courier New',Courier,monospace"}}>
       {showBrowser && <ModelBrowser onClose={()=>setShowBrowser(false)}/>}
       {showExport  && <ExportModal presets={presets} active={active} onClose={()=>setShowExport(false)}/>}
+      {showImport  && <ImportModal onPickFile={()=>fileInputRef.current?.click()} onPaste={text=>importPresets(text, true)&&setShowImport(false)} onClose={()=>setShowImport(false)}/>}
       {showInfo && <PresetInfoModal preset={active} presets={presets} allTags={allTags} onSave={saveInfo} onClose={()=>setShowInfo(false)}/>}
       {showSettingCard && <SettingCardModal preset={active} useCab={useCab} onClose={()=>setShowSettingCard(false)} onToast={showToast}/>}
       {showWizard  && <ToneWizardModal useCab={useCab} onClose={()=>setShowWizard(false)} onSave={(preset)=>{rememberOriginal(preset);setPresets(prev=>[preset,...prev]);setActiveId(preset.id);setSelBlockId(null);}}/>}
@@ -2650,7 +2751,7 @@ function ToneCloudApp() {
         onModelChange={m=>changeBlockModel(selBlock.id,m)} onMove={d=>moveBlock(selBlock.id,d)} onRemove={()=>removeBlock(selBlock.id)}
         canMove={selBlock?[active.chain[0]?.id!==selBlock.id, active.chain[active.chain.length-1]?.id!==selBlock.id]:[false,false]}/>
 
-      <ToneCloudHeader presetsLength={presets.length} setShowBrowser={setShowBrowser} setShowExport={setShowExport} fileInputRef={fileInputRef}
+      <ToneCloudHeader presetsLength={presets.length} setShowBrowser={setShowBrowser} setShowExport={setShowExport} setShowImport={setShowImport}
         user={user} syncStatus={syncStatus} onSignIn={signIn} onSignOut={signOut} onMenu={()=>setShowDrawer(true)} />
       <input ref={fileInputRef} type="file" accept=".json,application/json" className="hidden" onChange={handleImportFile}/>
       {toast && (
@@ -2862,6 +2963,8 @@ function ToneCloudApp() {
         aiCandidates={aiCandidates}
         onPickCandidate={(query, artist)=>buildFromTags(query, artist)}
         onCancelCandidates={()=>setAiCandidates(null)}
+        myTones={myTones}
+        onOpenMyTone={openMyTone}
       />
     </div>
   );

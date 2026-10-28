@@ -47,6 +47,10 @@ Valeton GP-200JR 멀티이펙터용 기타 톤 관리 웹앱. 사용자 한 명(
 - `gp200jrModels.js` — 기기 모델·파라미터 표 (`window.GP200JR`)
 - `genreMapper.js` — 장르 태그 → 하드웨어 룰 (`window.GenreMapper`). AI TONE은 MusicBrainz 장르 태그 사용
 - 저장: localStorage(`tonecloud.gp200jr.v1`) + 구글 로그인 시 Firestore 동기화(프리셋 단위 타임스탬프·삭제 tombstone)
+- AI TONE은 장르 기준이라 같은 장르 밴드는 같은 톤. 밴드 고유 톤은 사용자가 Claude 채팅 프로젝트에서 JSON으로 받아 IMPORT → 붙여넣기로 가져옴
+  - `parseImportedPresets(text, { pasted })`: 코드 블록·설명이 섞인 글에서 JSON 추출, 붙여넣기는 schema 없으면 현재 형식, 틀린 cat 은 모델 이름으로 바로잡음, 표에 없는 모델·파라미터는 경고
+  - 형식 설명서는 Claude 프로젝트 자료 폴더의 "TONE CLOUD 프리셋 JSON 형식.md" — 저장 형식을 바꾸면 같이 고칠 것
+  - `myTones`: AI TONE 검색 시 같은 아티스트 이름(MusicBrainz 이름·별칭)으로 저장된 프리셋을 "📌 내가 저장한 톤"으로 먼저 보여줌
 - 저장 형식을 바꾸면 `PARAM_SCHEMA`를 올리고 `normalizeChain`에 옛 데이터 변환을 추가 (옛 백업·클라우드 데이터도 읽혀야 함)
 
 ## 작업 규칙
