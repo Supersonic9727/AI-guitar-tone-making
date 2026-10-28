@@ -2258,7 +2258,7 @@ function ToneCloudApp() {
   const [aiQuery,setAiQuery]=useState('');
   const [aiLoading,setAiLoading]=useState(false);
   const [aiPreview,setAiPreview]=useState(null);
-  const [useCab,setUseCab]=useState(()=>saved?.useCab ?? true);
+  const [useCab,setUseCab]=useState(()=>saved?.useCab ?? false);   // 사용자 연결이 앰프 리턴이라 처음엔 CAB OFF
   const [showBrowser,setShowBrowser]=useState(false);
   const [showExport,setShowExport]=useState(false);
   const [showImport,setShowImport]=useState(false);
@@ -2802,7 +2802,7 @@ function ToneCloudApp() {
                   <span className="text-xs bg-blue-900/25 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase tracking-wider">{active.pickup}</span>
                 </div>
               </div>
-              <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 flex-shrink-0">
+              <div className="flex flex-wrap sm:flex-col items-center sm:items-end justify-between gap-2 flex-shrink-0">
                 <div className="flex items-center -ml-1 sm:ml-0" title="별점 (같은 별을 다시 누르면 0점)">
                   {[1,2,3,4,5].map(s=>(
                     <button key={s} onClick={()=>setRating(s)} aria-label={`별점 ${s}점`} className="p-1 sm:p-0.5 md:hover:scale-125 transition-transform">
@@ -2810,7 +2810,7 @@ function ToneCloudApp() {
                     </button>
                   ))}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 whitespace-nowrap">
                   <button onClick={undo} disabled={!canUndo} title="되돌리기 (Ctrl+Z)" aria-label="되돌리기" className="flex items-center px-2 py-1 rounded-md border border-[#383838] text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-30 disabled:hover:text-gray-400"><Undo size={12}/></button>
                   <button onClick={redo} disabled={!canRedo} title="다시 실행 (Ctrl+Shift+Z)" aria-label="다시 실행" className="flex items-center px-2 py-1 rounded-md border border-[#383838] text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-30 disabled:hover:text-gray-400"><Redo size={12}/></button>
                   <button onClick={()=>setShowInfo(true)} title="이름·아티스트·곡·픽업·태그·저장 슬롯 편집" className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#383838] text-[11px] text-gray-400 hover:text-white hover:border-gray-500 transition-colors"><Pencil size={10}/> 편집</button>
