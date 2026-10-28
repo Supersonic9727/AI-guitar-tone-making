@@ -102,7 +102,7 @@ add('DST', 'Distortion', ['SM Dist', 'La Charger'], K('Gain', 'Tone', 'Volume'))
 add('DST', 'Distortion', 'Darktale', K('Gain', 'Filter', 'Volume'));
 add('DST', 'Distortion', 'Chief', K('Gain', 'Volume', 'Bass', 'Middle', 'Treble'));
 add('DST', 'Distortion', 'Master Dist', K('Gain', 'Volume', 'Bass', 'Contour', 'Treble'));
-add('DST', 'Distortion', 'Revolt', [...K('Gain', 'Tone', 'Volume'), UNV(SEL('Mode', ['I', 'II', 'III']))]);
+add('DST', 'Distortion', 'Revolt', [...K('Gain', 'Tone', 'Volume'), SEL('Mode', ['I', 'II', 'III'])]);   // 사용자 확인(2026-10): Mode I·II·III
 add('DST', 'Distortion', 'Flagman Dist', K('Gain', 'Volume', 'Bass', 'Treble', 'Presence', 'Tight'));
 add('DST', 'Bass Drive', 'Flex OD', [...K('Gain', 'Tone', 'Volume'), SEL('Mode', ['Normal', 'Scoop', 'Edge']), ...K('Blend')]);
 add('DST', 'Bass Drive', 'Bass OD', K('Gain', 'Blend', 'Volume', 'Bass', 'Treble'));

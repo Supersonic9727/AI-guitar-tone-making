@@ -29,13 +29,14 @@ Valeton GP-200JR 멀티이펙터용 기타 톤 관리 웹앱. 사용자 한 명(
 - CAB Low Cut 0~2000Hz / Hi Cut 0~2000Hz, **Hi Cut 0Hz = 고음을 깎지 않음(OFF)** (`offAtZero`)
 - 리버브 Pre Delay 0~100 (단위 없음)
 - 앰프 Bright: ON/OFF 스위치
+- Revolt(DST) Mode: I / II / III
 - 패치 번호 01-A ~ 64-D (01-A~25-D는 공장 프리셋 자리)
 
 아직 확인 안 된 값 → `verify` 표시, 앱 화면에 노란 `?`로 나옴:
 - EQ 밴드 범위(±12dB로 가정), Mess EQ에 Volume이 있는지
 - 딜레이 Time R% / Spread 범위
 - Gate 3 Ratio/Hold/Hysteresis, Broken Delay Latch/Cut 범위
-- Revolt Mode, Precise OD Attack 선택 항목 이름
+- Precise OD Attack 선택 항목 이름 (Revolt Mode I·II·III는 확인됨)
 - Pitch/P-Bend 범위, Harmonizer·Ice Delay 옵션
 
 사용자가 값을 확인해 주면: 해당 항목의 `KU(…)` → `K(…)`, `UNV(SEL(…))` → `SEL(…)`, 범위가 0~100이 아니면 `R('이름', min, max, '단위')`. 모델 단위 `verify: '…'` 문자열은 지움. 확인 날짜를 주석으로 남긴다(예: `// 사용자 확인(2026-10)`).
