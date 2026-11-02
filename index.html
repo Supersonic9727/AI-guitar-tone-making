@@ -17,7 +17,7 @@
     });
   </script>
   <script src="./genreMapper.js?v=6"></script>
-  <script src="./gp200jrModels.js?v=8"></script>
+  <script src="./gp200jrModels.js?v=9"></script>
   <!-- Firebase (구글 로그인 + Firestore 클라우드 동기화). 로딩에 실패해도 앱은 로컬 저장으로 동작 -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -433,7 +433,7 @@ const FX_LABEL = Object.fromEntries(Object.entries(MODEL_DB).map(([k,v]) => [k, 
 // ── 실제 기기 파라미터 표(gp200jrModels.js, 펌웨어 V1.7.0) 연결 ─────────────────
 // 모든 블록은 normalizeBlock 을 거쳐 "기기 화면과 같은 파라미터 이름·개수·순서"로 맞춰진다.
 // schema 2 = 이 표에 맞춘 프리셋. 그 이전에 저장된 프리셋은 한 번만 옛 이름/값을 변환(migrate)한다.
-const PARAM_SCHEMA = 4;   // 3: 캐비닛 Low/Hi Cut 을 Hz 로 (사용자 확인 2026-10) / 4: 블록을 기기 모듈 순서로
+const PARAM_SCHEMA = 5;   // 3: 캐비닛 Low/Hi Cut 을 Hz 로 (사용자 확인 2026-10) / 4: 블록을 기기 모듈 순서로 / 5: EQ·Gate 3·스테레오 딜레이 범위 (사용자 확인 2026-11)
 const GP = window.GP200JR ?? null;
 // 기기에 없는 옛 모델 이름 → 가장 가까운 실제 모델
 const MODEL_RENAMES = {
@@ -459,6 +459,7 @@ function modelSpec(cat, model) {
 const paramSpec = (block, name) => modelSpec(block.cat, block.model)?.params.find(p => p.n === name) ?? null;
 
 function paramDefault(p) {
+  if (p.def !== undefined) return p.def;
   if (p.t === 'switch') return false;
   if (p.t === 'select') return p.o[0];
   if (p.unit === 'ms') return 400;
@@ -466,20 +467,23 @@ function paramDefault(p) {
   if (p.n === 'Latch' || p.n === 'Cut') return 0;   // Broken Delay: 0 = 글리치 없음
   if (p.offAtZero) return 0;                                            // CAB Hi Cut: 0Hz = 자르지 않음
   if (p.n === 'Hi Cut' || p.n === 'High Cut') return p.max ?? 100;
-  return Math.round(((p.min ?? 0) + (p.max ?? 100)) / 2);
+  return snapValue(((p.min ?? 0) + (p.max ?? 100)) / 2, p.step);
 }
+// 소수 단위 파라미터(예: Time R% 0.1%)는 step 단위로, 나머지는 정수로 맞춤
+const snapValue = (v, step = 1) => Number((Math.round(v / step) * step).toFixed((String(step).split('.')[1] ?? '').length));
 // 옛 0~100 캐비닛 컷 값 → Hz. Low Cut 은 ×2 (34 → 68Hz, 저음 정리 정도), Hi Cut 은 '자르지 않음'
 const legacyCutToHz = (p, v) => (p.offAtZero ? 0 : Math.round(v * 2));
 function coerceParam(p, v, migrate) {
   if (p.t === 'switch') return v === undefined ? paramDefault(p) : !!v;
-  if (p.t === 'select') return p.o.includes(String(v)) ? String(v) : paramDefault(p);
+  // 옛 하모나이저 Interval '3rd' → '+3rd' 처럼 + 만 빠진 이름도 받아줌
+  if (p.t === 'select') return p.o.includes(String(v)) ? String(v) : p.o.includes(`+${v}`) ? `+${v}` : paramDefault(p);
   if (typeof v !== 'number' || isNaN(v)) return paramDefault(p);
   if (migrate && v >= 0 && v <= 100) {   // 옛 값은 모두 0~100 기준
-    if (p.unit === 'dB') v = Math.round((v - 50) / 50 * p.max);   // 50 = 0dB
+    if (p.unit === 'dB' || p.hz) v = Math.round((v - 50) / 50 * p.max);   // 50 = 0 (EQ 밴드)
     else if (p.unit === 'ms') v = v * 10;                         // 45 → 450ms
     else if (p.unit === 'Hz' && /Cut$/.test(p.n)) v = legacyCutToHz(p, v);
   }
-  return Math.max(p.min ?? 0, Math.min(p.max ?? 100, Math.round(v)));
+  return Math.max(p.min ?? 0, Math.min(p.max ?? 100, snapValue(v, p.step)));
 }
 function normalizeBlock(b, migrate = false) {
   const model = migrate ? (MODEL_RENAMES[b.cat]?.[b.model] ?? b.model) : b.model;
@@ -502,9 +506,24 @@ function normalizeChain(chain, fromSchema) {
   const out = normalizeChainValues(chain, fromSchema);
   return fromSchema < 4 && isDefaultOrder(out.filter(b => blockModule(b) !== 'NR')) ? sortByModule(out) : out;
 }
+//  4 이하 → 기기 확인(2026-11)으로 범위가 바뀐 값은 옛 범위에서의 위치 그대로 새 범위로 (EQ -3/±12 → -13/±50)
+const OLD_RANGES = [
+  [(b, p) => p.hz && p.max === 50, -12, 12],                                          // 5밴드 EQ (Hyper EQ 는 그대로)
+  [(b, p) => p.n === 'Spread', 0, 100],                                               // 스테레오 딜레이
+  [(b, p) => b.model === 'Gate 3' && (p.n === 'Hold' || p.n === 'Hysteresis'), 0, 100],
+];
+function rescaleOldRanges(src, nb) {
+  const params = { ...nb.params };
+  for (const p of modelSpec(nb.cat, nb.model)?.params ?? []) {
+    const old = OLD_RANGES.find(([match]) => match(nb, p)), v = src.params?.[p.n];
+    if (old && typeof v === 'number') params[p.n] = coerceParam(p, p.min + (v - old[1]) / (old[2] - old[1]) * (p.max - p.min));
+  }
+  return { ...nb, params };
+}
 function normalizeChainValues(chain, fromSchema) {
   return chain.map(b => {
-    const nb = normalizeBlock(b, fromSchema < 2);
+    let nb = normalizeBlock(b, fromSchema < 2);
+    if (fromSchema >= 2 && fromSchema < 5) nb = rescaleOldRanges(b, nb);
     if (fromSchema !== 2 || nb.cat !== 'CAB') return nb;
     const params = { ...nb.params };
     for (const name of ['Low Cut', 'Hi Cut']) {
@@ -543,7 +562,7 @@ function applyAmpBright(chain, bright) {
 // 값 표시: ON/OFF, 단위(ms, dB, cents …)
 function fmtParamValue(p, v) {
   if (typeof v === 'boolean') return v ? 'ON' : 'OFF';
-  if (!p?.unit) return String(v);
+  if (!p?.unit) return `${(p?.min ?? 0) < 0 && v > 0 ? '+' : ''}${v}`;   // EQ 밴드·Spread 처럼 단위 없이 음수가 되는 값도 + 표시
   if (p.offAtZero && v === 0) return '0Hz(OFF)';
   // 음수가 가능한 값만 + 기호 (EQ dB, 피치, Ring Mod Fine …)
   if ((p.min ?? 0) < 0) return `${v > 0 ? '+' : ''}${v}${p.unit === 'cents' ? '¢' : p.unit}`;
@@ -635,10 +654,11 @@ const INITIAL_PRESETS = [
 ].map(normalizePreset);   // 옛 형식으로 적고 표에 맞춰 변환 (기기 화면과 같은 파라미터)
 // 범위 기본 0~100. ms·dB 처럼 범위가 다른 파라미터는 min/max/unit 으로 받음
 const knobStep = (min, max) => (max - min > 200 ? 10 : 1);
-const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', min=0, max=100, unit='', offAtZero=false }) => {
+// fine: 값의 최소 단위 (Time R% 는 0.1). 드래그는 knobStep 단위로 움직임
+const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', min=0, max=100, unit='', offAtZero=false, fine=1 }) => {
   const frac = Math.max(0, Math.min(1, (value - min) / (max - min)));
   const step = knobStep(min, max);
-  const clamp = v => Math.max(min, Math.min(max, v));
+  const clamp = v => Math.max(min, Math.min(max, snapValue(v, fine)));
   const [editing, setEditing] = useState(false);
   const [inputStr, setInputStr] = useState('');
   const dragging = useRef(false);
@@ -675,7 +695,7 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', 
   const openEdit = () => { setInputStr(String(value)); setEditing(true); };
   useEffect(() => { if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, [editing]);
   const commitEdit = () => {
-    const n = parseInt(inputStr, 10);
+    const n = parseFloat(inputStr);
     if (!isNaN(n)) onChange(clamp(n));
     setEditing(false);
   };
@@ -700,7 +720,7 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', 
       </div>
       <span className="text-xs uppercase tracking-widest leading-none font-bold" style={{color:color}}>{label}</span>
       {editing ? (
-        <input ref={inputRef} inputMode={min<0?'text':'numeric'} className={`${IS_TOUCH?"w-16 text-base":"w-12 text-xs"} text-center font-mono rounded px-1 py-0.5 border outline-none`}
+        <input ref={inputRef} inputMode={min<0?'text':fine<1?'decimal':'numeric'} className={`${IS_TOUCH?"w-16 text-base":"w-12 text-xs"} text-center font-mono rounded px-1 py-0.5 border outline-none`}
           style={{background:'#0a0a0a',borderColor:color,color}}
           value={inputStr} onChange={e=>setInputStr(e.target.value)}
           onBlur={commitEdit} onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditing(false);}}/>
@@ -711,7 +731,7 @@ const InteractiveKnob = React.memo(({ label, value, color, onChange, size='md', 
   );
 }, (prev, next) => {
   return prev.value === next.value && prev.color === next.color && prev.size === next.size && prev.label === next.label
-      && prev.min === next.min && prev.max === next.max && prev.unit === next.unit && prev.offAtZero === next.offAtZero;
+      && prev.min === next.min && prev.max === next.max && prev.unit === next.unit && prev.offAtZero === next.offAtZero && prev.fine === next.fine;
 });
 
 function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleActive, onReset, onUndo, note, onModelChange, onMove, onRemove, canMove = [false, false] }) {
@@ -790,14 +810,14 @@ function SlideInPanel({ block, dbEntry, color, onClose, onParamChange, onToggleA
                   <>
                     <div className="grid grid-cols-3 gap-x-4 gap-y-6">
                       {knobs.map(({ key, val, p }) => {
-                        const min = p?.min ?? 0, max = p?.max ?? 100, step = knobStep(min, max);
+                        const min = p?.min ?? 0, max = p?.max ?? 100, fine = p?.step ?? 1, step = p?.step ?? knobStep(min, max);
                         // key 에 블록 id 포함: 다른 블록으로 바꾸면 노브를 새로 만들어 이전 블록의 onChange 가 남지 않게
                         return (
                           <div key={`${block.id}-${key}`} className="flex flex-col items-center gap-1">
-                            <InteractiveKnob label={key} value={val} color={color.border} size="lg" min={min} max={max} unit={p?.unit ?? ''} offAtZero={!!p?.offAtZero} onChange={v=>onParamChange(key,v)}/>
+                            <InteractiveKnob label={key} value={val} color={color.border} size="lg" min={min} max={max} unit={p?.unit ?? ''} offAtZero={!!p?.offAtZero} fine={fine} onChange={v=>onParamChange(key,v)}/>
                             <div className="flex items-center gap-1 mt-0.5">
-                              <button onClick={()=>onParamChange(key,Math.max(min,val-step))} className="w-5 h-5 flex items-center justify-center rounded border border-[#1e1e1e] text-gray-400 hover:text-gray-300 transition-colors"><Minus size={9}/></button>
-                              <button onClick={()=>onParamChange(key,Math.min(max,val+step))} className="w-5 h-5 flex items-center justify-center rounded border border-[#1e1e1e] text-gray-400 hover:text-gray-300 transition-colors"><Plus size={9}/></button>
+                              <button onClick={()=>onParamChange(key,Math.max(min,snapValue(val-step,fine)))} className="w-5 h-5 flex items-center justify-center rounded border border-[#1e1e1e] text-gray-400 hover:text-gray-300 transition-colors"><Minus size={9}/></button>
+                              <button onClick={()=>onParamChange(key,Math.min(max,snapValue(val+step,fine)))}className="w-5 h-5 flex items-center justify-center rounded border border-[#1e1e1e] text-gray-400 hover:text-gray-300 transition-colors"><Plus size={9}/></button>
                             </div>
                             {p?.hz && <span className="text-[10px] text-gray-500 -mt-0.5">{p.hz}</span>}
                             {p?.verify && <span title={UNVERIFIED_TIP} className="text-[10px] font-bold text-amber-400 -mt-0.5 cursor-help">? 범위 미확인</span>}
@@ -1094,7 +1114,7 @@ function ImportModal({ onPickFile, onPaste, onClose }) {
             <div className="text-xs font-bold text-gray-300 mb-1">🤖 Claude 채팅 JSON 붙여넣기</div>
             <div className="text-[11px] text-gray-400 mb-2 leading-relaxed">Claude 채팅 프로젝트에 "coldrain 톤을 TONE CLOUD JSON으로 만들어줘"라고 요청한 뒤, 답변의 코드 블록을 복사해서 그대로 붙여넣으세요. 앞뒤 설명이 섞여 있어도 괜찮아요.</div>
             <textarea value={text} onChange={e=>setText(e.target.value)} rows={8} spellCheck={false}
-              placeholder={'{ "presets": [ { "name": "coldrain · Lead", "artist": "coldrain", "schema": 4, "chain": [ … ] } ] }'}
+              placeholder={'{ "presets": [ { "name": "coldrain · Lead", "artist": "coldrain", "schema": 5, "chain": [ … ] } ] }'}
               className="w-full bg-[#040404] border border-[#2a2a2a] rounded-xl p-3 text-base sm:text-xs font-mono text-gray-300 placeholder-gray-600 focus:outline-none focus:border-blue-600"/>
           </div>
         </div>
@@ -2105,8 +2125,8 @@ function parseImportedPresets(text, { pasted = false } = {}) {
     .map(p => ({ artist: '', song: '', tags: [], pickup: '', rating: 0, isAI: false, ...p,
       chain: p.chain.map((b, i) => fixBlockCat({ active: true, ...b, id: String(b.id ?? `${p.id}-${i}`), params: { ...b.params } })) }));
   if (!valid.length) throw new Error('가져올 수 있는 프리셋이 없어요.');
-  // 현재 형식 프리셋만 검사 (옛 백업은 이름·값을 변환하므로 제외) — 표에 없는 이름은 기본값으로 채워짐
-  for (const p of valid) if (p.schema === PARAM_SCHEMA) for (const b of p.chain) {
+  // 기기 이름을 쓰는 형식(4 이상)만 검사 (옛 백업은 이름·값을 변환하므로 제외) — 표에 없는 이름은 기본값으로 채워짐
+  for (const p of valid) if (p.schema >= 4) for (const b of p.chain) {
     const spec = modelSpec(b.cat, b.model);
     if (!spec) { unknownModels.add(b.model); continue; }
     for (const k of Object.keys(b.params)) if (!spec.params.some(x => x.n === k)) unknownParams.add(`${b.model} ${k}`);

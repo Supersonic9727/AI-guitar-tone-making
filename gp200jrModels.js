@@ -67,12 +67,18 @@ add('PRE', 'Filter', 'T-Wah', [...K('Sens', 'Range', 'Q', 'Mix'), SEL('Mode', ['
 add('PRE', 'Auto Filter', 'A-WAH', [...K('Depth', 'Rate', 'Volume', 'Low', 'High', 'Q'), SYNC]);
 add('PRE', 'Filter', 'Step Filter', [...K('Step 1', 'Step 2', 'Step 3', 'Step 4', 'Rate'), SYNC]);
 add('PRE', 'Pitch', 'OCTA',   K('Oct 1', 'Oct 2', 'Dry'));
-add('PRE', 'Pitch', 'Pitch',  [R('Low Pitch', -24, 24, 'st', { verify: true }), R('Hi Pitch', -24, 24, 'st', { verify: true }), ...K('Dry', 'Low Volume', 'High Volume')]);
-add('PRE', 'Pitch', 'P-Bend', [R('Low Pitch', -24, 24, 'st', { verify: true }), R('Hi Pitch', -24, 24, 'st', { verify: true }), ...K('Wet', 'Dry', 'Range')]);
+const PITCHES = [R('Low Pitch', -12, 0, 'st'), R('Hi Pitch', 0, 12, 'st')];   // 사용자 확인(2026-11): Low -12~0, Hi 0~12
+add('PRE', 'Pitch', 'Pitch',  [...PITCHES, ...K('Dry', 'Low Volume', 'High Volume')]);
+add('PRE', 'Pitch', 'P-Bend', [...PITCHES, ...K('Wet', 'Dry', 'Range')]);
 hammy('PRE');
+// 사용자 확인(2026-11): Key C~B, Mode 8개, Interval -Oct ~ -2nd, +2nd ~ +Oct (Harmonizer 2 의 Interval 1·2 도 같은 항목)
 const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-add('PRE', 'Pitch', 'Harmonizer 1', [...K('Mix'), SEL('Key', KEYS), SEL('Mode', ['Major', 'Minor']), SEL('Interval', ['3rd', '4th', '5th', '6th', 'Oct']), SW('Smooth Mode')], { verify: 'Key·Mode·Interval 항목 미확인' });
-add('PRE', 'Pitch', 'Harmonizer 2', [...K('Mix'), SEL('Key', KEYS), SEL('Mode', ['Major', 'Minor']), SEL('Interval 1', ['3rd', '4th', '5th', '6th', 'Oct']), SEL('Interval 2', ['3rd', '4th', '5th', '6th', 'Oct']), SW('Smooth Mode')], { verify: 'Key·Mode·Interval 항목 미확인' });
+const HARM_MODES = ['Major', 'Minor', 'H.Minor', 'Dorian', 'Phrygian', 'Lydian', 'Mixolydian', 'Locrian'];
+const STEPS = ['Oct', '7th', '6th', '5th', '4th', '3rd', '2nd'];
+const INTERVALS = [...STEPS.map(s => `-${s}`), ...STEPS.slice().reverse().map(s => `+${s}`)];
+const INTERVAL = (n, def) => ({ ...SEL(n, INTERVALS), def });   // def: 처음 넣을 때 값 (목록 첫 항목 -Oct 대신)
+add('PRE', 'Pitch', 'Harmonizer 1', [...K('Mix'), SEL('Key', KEYS), SEL('Mode', HARM_MODES), INTERVAL('Interval', '+3rd'), SW('Smooth Mode')]);
+add('PRE', 'Pitch', 'Harmonizer 2', [...K('Mix'), SEL('Key', KEYS), SEL('Mode', HARM_MODES), INTERVAL('Interval 1', '+3rd'), INTERVAL('Interval 2', '+5th'), SW('Smooth Mode')]);
 add('PRE', 'Special', 'Ring Mod', [...K('Mix', 'Freq'), R('Fine', -50, 50, 'Hz'), ...K('Tone')]);
 add('PRE', 'Special', 'Saturate', K('Saturation', 'Mix', 'Volume', 'High Cut'));
 autoSwell('PRE');
@@ -93,7 +99,7 @@ add('DST', 'OD', 'Blues Master', K('Gain', 'Volume', 'Bass', 'Middle', 'Treble')
 add('DST', 'OD', 'Master OD',   K('Gain', 'Tone', 'Volume'));
 add('DST', 'OD', 'TaiChi OD',   K('Gain', 'Tone', 'Volume', 'Voice'));
 add('DST', 'OD', 'Timmy OD',    [...K('Gain', 'Volume', 'Bass', 'Middle', 'Treble'), SEL('Mode', ['I', 'II', 'III'])]);
-add('DST', 'OD', 'Precise OD',  [...K('Gain', 'Tone', 'Volume'), UNV(SEL('Attack', ['1', '2', '3', '4', '5', '6'])), ...K('Gate')]);
+add('DST', 'OD', 'Precise OD',  [...K('Gain', 'Tone', 'Volume'), SEL('Attack', ['1', '2', '3', '4', '5', '6']), ...K('Gate')]);   // 사용자 확인(2026-11): Attack 1~6
 add('DST', 'OD', 'Empire OD',   [...K('Gain', 'Tone', 'Volume'), SEL('Mode', ['1', '2', '3'])]);
 add('DST', 'Fuzz', 'Lazaro',    K('Sustain', 'Tone', 'Volume'));
 add('DST', 'Fuzz', ['Red Haze', 'Sora Fuzz'], K('Fuzz', 'Volume'));
@@ -162,7 +168,8 @@ snapTones('AMP');
 // ── NR ───────────────────────────────────────────────────────────────────────
 add('NR', 'Gate', 'Gate 1', K('Threshold'));   // 사용자 확인: 0~100
 add('NR', 'Gate', 'Gate 2', K('Threshold', 'Attack', 'Release'));
-add('NR', 'Gate', 'Gate 3', [...K('Threshold'), ...KU('Ratio'), ...K('Attack', 'Release'), ...KU('Hold', 'Hysteresis')]);   // V1.8.0 신규 — 인버스 익스팬더
+// V1.8.0 신규 — 인버스 익스팬더. 사용자 확인(2026-11): Ratio 0~100, Hold 0~1000ms(1.0s), Hysteresis -10~0dB
+add('NR', 'Gate', 'Gate 3', [...K('Threshold', 'Ratio', 'Attack', 'Release'), R('Hold', 0, 1000, 'ms'), R('Hysteresis', -10, 0, 'dB')]);
 autoSwell('NR');
 
 // ── CAB (모든 캐비닛 공통 파라미터) ─────────────────────────────────────────
@@ -193,14 +200,17 @@ const cabs = {
 Object.entries(cabs).forEach(([name, base]) => add('CAB', 'Cab', name, CAB, { base }));
 for (let i = 1; i <= 20; i++) add('CAB', 'User IR', `User IR ${i}`, CAB);
 
-// ── EQ (밴드 값 = dB) ────────────────────────────────────────────────────────
-const bands = (freqs, verify) => freqs.map((hz, i) => R(`Band ${i + 1}`, -12, 12, 'dB', { hz, ...(verify ? { verify } : {}) }));
-add('EQ', 'EQ', 'Guitar EQ 1', [...bands(['125Hz', '400Hz', '800Hz', '1.6kHz', '4kHz'], true), ...K('Volume')]);
-add('EQ', 'EQ', 'Guitar EQ 2', [...bands(['100Hz', '500Hz', '1kHz', '3kHz', '6kHz'], true), ...K('Volume')]);
-add('EQ', 'EQ', 'Bass EQ 1',   [...bands(['33Hz', '150Hz', '600Hz', '2kHz', '8kHz'], true), ...K('Volume')]);
-add('EQ', 'EQ', 'Bass EQ 2',   [...bands(['50Hz', '120Hz', '400Hz', '800Hz', '4.5kHz'], true), ...K('Volume')]);
-add('EQ', 'EQ', 'Mess EQ',     bands(['80Hz', '240Hz', '750Hz', '2.2kHz', '6.6kHz'], true), { verify: 'Volume 노브가 있는지 미확인' });
-add('EQ', 'EQ', 'Hyper EQ',    [...bands(['31Hz', '63Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz'], true), ...K('Volume')]);   // 매뉴얼: ±12dB (기기 미확인)
+// ── EQ ───────────────────────────────────────────────────────────────────────
+// 5밴드 EQ 밴드 값 -50~+50 (단위 표시 없음) — 사용자 확인(2026-11, Guitar EQ 1). Mess EQ 는 Volume 노브 없음
+const bands = freqs => freqs.map((hz, i) => R(`Band ${i + 1}`, -50, 50, '', { hz }));
+// Hyper EQ 는 매뉴얼에 ±12dB 로 따로 적혀 있어 아직 미확인으로 둠
+const hyperBands = freqs => freqs.map((hz, i) => R(`Band ${i + 1}`, -12, 12, 'dB', { hz, verify: true }));
+add('EQ', 'EQ', 'Guitar EQ 1', [...bands(['125Hz', '400Hz', '800Hz', '1.6kHz', '4kHz']), ...K('Volume')]);
+add('EQ', 'EQ', 'Guitar EQ 2', [...bands(['100Hz', '500Hz', '1kHz', '3kHz', '6kHz']), ...K('Volume')]);
+add('EQ', 'EQ', 'Bass EQ 1',   [...bands(['33Hz', '150Hz', '600Hz', '2kHz', '8kHz']), ...K('Volume')]);
+add('EQ', 'EQ', 'Bass EQ 2',   [...bands(['50Hz', '120Hz', '400Hz', '800Hz', '4.5kHz']), ...K('Volume')]);
+add('EQ', 'EQ', 'Mess EQ',     bands(['80Hz', '240Hz', '750Hz', '2.2kHz', '6.6kHz']));
+add('EQ', 'EQ', 'Hyper EQ',    [...hyperBands(['31Hz', '63Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz']), ...K('Volume')]);
 
 // ── MOD (코러스·플랜저·페이저·트레몰로 등 — 한 번에 1개만) ──────────────────
 add('MOD', 'Chorus', ['G-Chorus', 'B-Chorus'], [...K('Depth', 'Rate', 'Volume'), SYNC]);
@@ -227,8 +237,10 @@ freezes('MOD');
 
 // ── DLY (Time = ms) ──────────────────────────────────────────────────────────
 const DLY_BASIC = [...K('Mix', 'Feedback'), TIME, SYNC, TRAIL];
-add('DLY', 'Delay', ['BBD Delay S', 'Digital Delay S'], [...K('Mix', 'Feedback'), TIME, ...KU('Time R%', 'Spread'), ...K('Level'), SYNC, TRAIL]);
-add('DLY', 'Delay', 'Tape Delay S', [...K('Mix', 'Feedback'), TIME, ...KU('Time R%', 'Spread'), ...K('Wow & Flutter'), SEL('Age', ['1', '2', '3']), ...K('Scrape', 'Drive', 'Level'), SYNC, TRAIL]);
+// 사용자 확인(2026-11): Time R% 1.0~100.0% (0.1 단위), Spread -100~100
+const STEREO = [R('Time R%', 1, 100, '%', { step: 0.1 }), R('Spread', -100, 100, '')];
+add('DLY', 'Delay', ['BBD Delay S', 'Digital Delay S'], [...K('Mix', 'Feedback'), TIME, ...STEREO, ...K('Level'), SYNC, TRAIL]);
+add('DLY', 'Delay', 'Tape Delay S', [...K('Mix', 'Feedback'), TIME, ...STEREO, ...K('Wow & Flutter'), SEL('Age', ['1', '2', '3']), ...K('Scrape', 'Drive', 'Level'), SYNC, TRAIL]);
 add('DLY', 'Delay', ['Ambience 1', 'Ambience 2'], [...K('Mix', 'Feedback'), TIME, ...K('Level', 'Mod', 'Tone'), SYNC, TRAIL]);
 add('DLY', 'Delay', ['Pure', 'Analog', 'Tape', 'Ping Pong', 'Tube', 'Sweet Echo', '999 Echo'], DLY_BASIC);
 add('DLY', 'Delay', 'Slapback', [...K('Mix', 'Feedback'), TIME, TRAIL]);
@@ -239,8 +251,12 @@ add('DLY', 'Delay', 'Vintage Rack', [...K('Mix', 'Feedback'), TIME, ...K('Mod', 
 add('DLY', 'Delay', 'Lofi Echo', [...K('Mix', 'Feedback'), TIME, ...K('Crush', 'Bit'), SYNC, TRAIL]);
 add('DLY', 'Delay', 'Rev Echo', [...K('Mix', 'Feedback'), TIME, ...K('Volume'), SYNC, TRAIL]);
 add('DLY', 'Delay', 'Dual Echo', [...K('Mix A', 'FB A'), R('Time A', 0, 4000, 'ms'), ...K('Mix B', 'FB B'), R('Time B', 0, 4000, 'ms'), SW('A Sync'), SW('B Sync'), TRAIL]);
-add('DLY', 'Delay', 'Ice Delay', [...K('Mix'), TIME, ...K('Feedback', 'Mod', 'Tone'), SEL('Pitch', ['-12', '-7', '-5', '+5', '+7', '+12']), SEL('Slice', ['1/16', '1/8', '1/4']), SEL('Direction', ['Forward', 'Reverse']), ...K('Blend', 'Smooth', 'Level'), SYNC, TRAIL], { verify: 'Pitch·Slice·Direction 항목 미확인' });
-add('DLY', 'Delay', 'Broken Delay', [...K('Mix'), TIME, ...K('Feedback'), ...KU('Latch', 'Cut'), SYNC, TRAIL]);   // V1.8.0 신규 (Latch·Cut 0 = 글리치 없음)
+// 사용자 확인(2026-11): Pitch -Oct, -11 ~ -1, ±50·±20 cents, 0, +1 ~ +11, +Oct / Slice 3단계 / Direction -100~100
+const SEMIS = Array.from({ length: 11 }, (_, i) => i + 1);
+const ICE_PITCHES = ['-Oct', ...SEMIS.slice().reverse().map(n => `-${n}`), '-50 cents', '-20 cents', '0', '+20 cents', '+50 cents', ...SEMIS.map(n => `+${n}`), '+Oct'];
+add('DLY', 'Delay', 'Ice Delay', [...K('Mix'), TIME, ...K('Feedback', 'Mod', 'Tone'), { ...SEL('Pitch', ICE_PITCHES), def: '+Oct' }, SEL('Slice', ['Short', 'Medium', 'Long']), R('Direction', -100, 100, ''), ...K('Blend', 'Smooth', 'Level'), SYNC, TRAIL]);
+// V1.8.0 신규 (Latch·Cut 0 = 글리치 없음). 사용자 확인(2026-11): Latch·Cut 0~100
+add('DLY', 'Delay', 'Broken Delay', [...K('Mix'), TIME, ...K('Feedback', 'Latch', 'Cut'), SYNC, TRAIL]);
 
 // ── RVB ──────────────────────────────────────────────────────────────────────
 // Pre Delay: 0(최소)~100(최대), 단위 없음 — 사용자 실기 확인 2026-10

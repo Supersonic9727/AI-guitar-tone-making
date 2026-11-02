@@ -29,15 +29,17 @@ Valeton GP-200JR 멀티이펙터용 기타 톤 관리 웹앱. 사용자 한 명(
 - CAB Low Cut 0~2000Hz / Hi Cut 0~2000Hz, **Hi Cut 0Hz = 고음을 깎지 않음(OFF)** (`offAtZero`)
 - 리버브 Pre Delay 0~100 (단위 없음)
 - 앰프 Bright: ON/OFF 스위치
-- Revolt(DST) Mode: I / II / III
+- Revolt(DST) Mode: I / II / III, Precise OD Attack: 1~6
 - 패치 번호 01-A ~ 64-D (01-A~25-D는 공장 프리셋 자리)
+- (2026-11 확인) 5밴드 EQ 밴드 -50~+50(단위 표시 없음, Guitar EQ 1로 확인), Mess EQ는 Volume 없음
+- (2026-11 확인) 스테레오 딜레이(BBD/Digital/Tape Delay S) Time R% 1.0~100.0%(0.1 단위 → `step: 0.1`), Spread -100~100
+- (2026-11 확인) Gate 3 Ratio 0~100, Hold 0~1000ms, Hysteresis -10~0dB / Broken Delay Latch·Cut 0~100
+- (2026-11 확인) Pitch·P-Bend Low -12~0, Hi 0~12 / Harmonizer Mode 8개, Interval -Oct~-2nd, +2nd~+Oct
+- (2026-11 확인) Ice Delay Pitch -Oct, -11~-1, ±50·±20 cents, 0, +1~+11, +Oct / Slice Short·Medium·Long / Direction -100~100
 
 아직 확인 안 된 값 → `verify` 표시, 앱 화면에 노란 `?`로 나옴:
-- EQ 밴드 범위(±12dB로 가정), Mess EQ에 Volume이 있는지
-- 딜레이 Time R% / Spread 범위
-- Gate 3 Ratio/Hold/Hysteresis, Broken Delay Latch/Cut 범위
-- Precise OD Attack 선택 항목 이름 (Revolt Mode I·II·III는 확인됨)
-- Pitch/P-Bend 범위, Harmonizer·Ice Delay 옵션
+- Hyper EQ 밴드 범위 (매뉴얼에 ±12dB로 따로 적혀 있어 5밴드 EQ와 같은지 미확인)
+- 사용자가 적은 이름 중 오타로 보고 고친 것: Harmonizer "Mixoydian" → `Mixolydian`, Ice Delay "Mideum" → `Medium` (기기 표기 확인 필요)
 
 사용자가 값을 확인해 주면: 해당 항목의 `KU(…)` → `K(…)`, `UNV(SEL(…))` → `SEL(…)`, 범위가 0~100이 아니면 `R('이름', min, max, '단위')`. 모델 단위 `verify: '…'` 문자열은 지움. 확인 날짜를 주석으로 남긴다(예: `// 사용자 확인(2026-10)`).
 사용자에게 설명할 때 미확인 값은 추정이라고 밝힌다.
@@ -52,6 +54,7 @@ Valeton GP-200JR 멀티이펙터용 기타 톤 관리 웹앱. 사용자 한 명(
   - 형식 설명서는 Claude 프로젝트 자료 폴더의 "TONE CLOUD 프리셋 JSON 형식.md" — 저장 형식을 바꾸면 같이 고칠 것
   - `myTones`: AI TONE 검색 시 같은 아티스트 이름(MusicBrainz 이름·별칭)으로 저장된 프리셋을 "📌 내가 저장한 톤"으로 먼저 보여줌
 - 저장 형식을 바꾸면 `PARAM_SCHEMA`를 올리고 `normalizeChain`에 옛 데이터 변환을 추가 (옛 백업·클라우드 데이터도 읽혀야 함)
+  - 지금 5. 4 이하 → 5는 `OLD_RANGES`로 범위가 바뀐 값(EQ ±12→±50, Spread·Gate 3 Hold/Hysteresis 0~100→새 범위)을 같은 비율로 옮김
 
 ## 작업 규칙
 - `gp200jrModels.js`·`genreMapper.js`를 바꾸면 `index.html`의 `<script src="./…js?v=N">` 숫자를 올린다 (폰 캐시 때문)
