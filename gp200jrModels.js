@@ -201,16 +201,14 @@ Object.entries(cabs).forEach(([name, base]) => add('CAB', 'Cab', name, CAB, { ba
 for (let i = 1; i <= 20; i++) add('CAB', 'User IR', `User IR ${i}`, CAB);
 
 // ── EQ ───────────────────────────────────────────────────────────────────────
-// 5밴드 EQ 밴드 값 -50~+50 (단위 표시 없음) — 사용자 확인(2026-11, Guitar EQ 1). Mess EQ 는 Volume 노브 없음
+// EQ 밴드 값 -50~+50 (단위 표시 없음) — 사용자 확인(2026-11, Guitar EQ 1, Hyper EQ 도 같음). Mess EQ 는 Volume 노브 없음
 const bands = freqs => freqs.map((hz, i) => R(`Band ${i + 1}`, -50, 50, '', { hz }));
-// Hyper EQ 는 매뉴얼에 ±12dB 로 따로 적혀 있어 아직 미확인으로 둠
-const hyperBands = freqs => freqs.map((hz, i) => R(`Band ${i + 1}`, -12, 12, 'dB', { hz, verify: true }));
 add('EQ', 'EQ', 'Guitar EQ 1', [...bands(['125Hz', '400Hz', '800Hz', '1.6kHz', '4kHz']), ...K('Volume')]);
 add('EQ', 'EQ', 'Guitar EQ 2', [...bands(['100Hz', '500Hz', '1kHz', '3kHz', '6kHz']), ...K('Volume')]);
 add('EQ', 'EQ', 'Bass EQ 1',   [...bands(['33Hz', '150Hz', '600Hz', '2kHz', '8kHz']), ...K('Volume')]);
 add('EQ', 'EQ', 'Bass EQ 2',   [...bands(['50Hz', '120Hz', '400Hz', '800Hz', '4.5kHz']), ...K('Volume')]);
 add('EQ', 'EQ', 'Mess EQ',     bands(['80Hz', '240Hz', '750Hz', '2.2kHz', '6.6kHz']));
-add('EQ', 'EQ', 'Hyper EQ',    [...hyperBands(['31Hz', '63Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz']), ...K('Volume')]);
+add('EQ', 'EQ', 'Hyper EQ',    [...bands(['31Hz', '63Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz']), ...K('Volume')]);
 
 // ── MOD (코러스·플랜저·페이저·트레몰로 등 — 한 번에 1개만) ──────────────────
 add('MOD', 'Chorus', ['G-Chorus', 'B-Chorus'], [...K('Depth', 'Rate', 'Volume'), SYNC]);

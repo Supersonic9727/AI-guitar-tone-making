@@ -508,7 +508,7 @@ function normalizeChain(chain, fromSchema) {
 }
 //  4 이하 → 기기 확인(2026-11)으로 범위가 바뀐 값은 옛 범위에서의 위치 그대로 새 범위로 (EQ -3/±12 → -13/±50)
 const OLD_RANGES = [
-  [(b, p) => p.hz && p.max === 50, -12, 12],                                          // 5밴드 EQ (Hyper EQ 는 그대로)
+  [(b, p) => p.hz && p.max === 50, -12, 12],                                          // EQ 밴드 (5밴드·Hyper EQ)
   [(b, p) => p.n === 'Spread', 0, 100],                                               // 스테레오 딜레이
   [(b, p) => b.model === 'Gate 3' && (p.n === 'Hold' || p.n === 'Hysteresis'), 0, 100],
 ];
